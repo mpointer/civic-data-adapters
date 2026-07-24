@@ -1,0 +1,61 @@
+{
+  "name": "civic-data-adapters",
+  "version": "0.1.0",
+  "description": "TypeScript adapters for municipal and civic government data: Legistar, Socrata, USASpending, ProPublica Nonprofit Explorer, CrimeWatch, HTML/PDF police blotters, and meeting minutes, behind one pluggable registry with robots.txt compliance and bring-your-own storage.",
+  "license": "Apache-2.0",
+  "author": "Michael Pointer <mpointer@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mpointer/civic-data-adapters.git"
+  },
+  "homepage": "https://github.com/mpointer/civic-data-adapters#readme",
+  "bugs": "https://github.com/mpointer/civic-data-adapters/issues",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "keywords": [
+    "civic-tech",
+    "open-data",
+    "legistar",
+    "socrata",
+    "usaspending",
+    "municipal",
+    "government-data",
+    "police-blotter",
+    "meeting-minutes",
+    "scraper"
+  ],
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pdf-parse": "^1.1.1"
+  }
+}
