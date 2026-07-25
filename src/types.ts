@@ -140,6 +140,37 @@ export interface AdapterResult {
   skipped: number;
 }
 
+/**
+ * Context for discovery functions (v0.2). Discovery PROPOSES sources via an
+ * LLM callback and then VERIFIES every candidate by running the real adapter
+ * parsers against it — a returned source has actually yielded data.
+ */
+export interface DiscoveryContext {
+  /**
+   * LLM callback (same shape as AdapterContext.summarize). The prompts ask
+   * for real, current URLs, so for useful results this should be backed by
+   * WEB-SEARCH-GROUNDED generation. An ungrounded model will hallucinate
+   * candidates; verification rejects them, which is safe but yields nothing.
+   */
+  generate: (systemPrompt: string, prompt: string) => Promise<string>;
+  fetch?: typeof fetch;
+  userAgent?: string;
+  logger?: CivicLogger;
+  skipRobotsCheck?: boolean;
+}
+
+/** A verified, ready-to-ingest source proposal. `meta` drops straight into
+ *  `runAdapter`. Discovery proposes; humans approve; adapters ingest. */
+export interface DiscoveredSource {
+  provider: CivicProvider;
+  name: string;
+  url?: string;
+  meta: CivicAdapterMeta;
+  /** How verification confirmed it, e.g. "parsed 12 blotter rows just now"
+   *  or "Legistar API answered for clientId 'seattle'". */
+  evidence: string;
+}
+
 export const consoleLogger: CivicLogger = {
   log(message, level = "info") {
     if (level === "warn") console.warn(`[civic] ${message}`);

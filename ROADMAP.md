@@ -12,16 +12,16 @@ callback (`generate: (prompt) => Promise<string>`), with
 [llm-governance-gateway](https://github.com/mpointer/llm-governance-gateway)
 as the documented but never required provider.
 
-- [ ] Blotter discovery: given a locality, find its police blotter (HTML,
+- [x] Blotter discovery: given a locality, find its police blotter (HTML,
       PDF, CrimeWatch, or Socrata) and emit ready-to-use `CivicAdapterMeta`.
       Ported from the production pipeline's discovery module.
-- [ ] Meeting-portal discovery: find a city's Legistar/Granicus/CivicPlus/
+- [x] Meeting-portal discovery: find a city's Legistar/Granicus/CivicPlus/
       BoardDocs instance and classify which provider it is.
-- [ ] Socrata catalog search: find relevant datasets on a city's open-data
+- [x] Socrata catalog search: find relevant datasets on a city's open-data
       portal and propose adapter configs (ported; currently excluded because
       it provisioned sources directly into the origin app's tables — v2 gives
       it a clean `DiscoveredSource[]` return contract instead).
-- [ ] A `discover` entry point that runs all three and returns proposed
+- [x] A `discover` entry point that runs all three and returns proposed
       source configs for human review. Discovery proposes; humans approve;
       adapters ingest.
 

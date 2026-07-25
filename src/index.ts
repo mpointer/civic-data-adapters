@@ -20,3 +20,10 @@ export {
 export type { CrimewatchIncident, CrimewatchFetchOptions } from "./adapters/blotter-crimewatch.js";
 export { ingestUSASpending } from "./adapters/usaspending.js";
 export { ingestNonprofitExplorer } from "./adapters/nonprofit.js";
+export {
+  discover,
+  discoverBlotter,
+  discoverMeetingPortal,
+  searchSocrataCatalog,
+  parseCandidateJson,
+} from "./discovery/index.js";

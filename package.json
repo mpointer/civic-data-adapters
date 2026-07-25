@@ -1,6 +1,6 @@
 {
   "name": "civic-data-adapters",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript adapters for municipal and civic government data: Legistar, Socrata, USASpending, ProPublica Nonprofit Explorer, CrimeWatch, HTML/PDF police blotters, and meeting minutes, behind one pluggable registry with robots.txt compliance and bring-your-own storage.",
   "license": "Apache-2.0",
   "author": "Michael Pointer <mpointer@gmail.com>",

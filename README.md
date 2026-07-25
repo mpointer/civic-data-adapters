@@ -66,9 +66,32 @@ ctx.summarize = async (system, text) =>
   (await gw.runText({ slug: "minutes", promptBody: text, system, cache: false, ... })).text;
 ```
 
-## Scope and roadmap
+## Discovery (v0.2)
 
-v1 is adapters only. The source pipeline also has LLM-assisted *discovery* (point at a city, find its blotter and meeting portals); that lands in v2 behind the same kind of caller-supplied callback. A Socrata catalog-search module for discovering datasets is in the same bucket.
+Point at a city and find its civic sources. Discovery proposes candidates through an LLM callback, then **verifies every one by running the real adapter parsers against it**. A returned source has actually yielded data, right now, not "the model thinks this looks right":
+
+```ts
+import { discover } from "civic-data-adapters";
+
+const sources = await discover(
+  { name: "Springfield", state: "IL" },
+  {
+    generate: myWebSearchGroundedLlm, // (systemPrompt, prompt) => Promise<string>
+    socrataPortalUrl: "https://data.springfield.il.gov", // optional
+  },
+);
+// Each result: { provider, name, meta, evidence }
+// evidence reads like "parsed 12 HTML blotter rows just now"
+// meta drops straight into runAdapter — after a human approves it.
+```
+
+Individual entry points also exist: `discoverBlotter`, `discoverMeetingPortal`, and `searchSocrataCatalog` (the catalog one needs no LLM at all).
+
+Two things stated plainly. First, the prompts ask for real, current URLs, so `generate` should be backed by **web-search-grounded** generation; an ungrounded model will hallucinate candidates, which verification then rejects — safe, but you'll get nothing. Second, discovery proposes and humans approve; nothing here auto-provisions scraper targets.
+
+## Roadmap
+
+See [ROADMAP.md](./ROADMAP.md): recorded-fixture tests for the blotter parsers, politeness controls beyond robots.txt, and real Granicus/CivicPlus/BoardDocs adapters when someone does the per-platform work.
 
 ## License
 
