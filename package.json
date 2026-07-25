@@ -11,8 +11,7 @@
   "homepage": "https://github.com/mpointer/civic-data-adapters#readme",
   "bugs": "https://github.com/mpointer/civic-data-adapters/issues",
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "type": "module",
   "main": "./dist/index.js",
