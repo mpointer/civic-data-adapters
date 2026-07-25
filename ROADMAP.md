@@ -35,6 +35,12 @@ as the documented but never required provider.
       infrastructure deserves gentler defaults than commercial APIs.
 - [ ] Locality-aware Socrata `$where` templating (city/county filters) so
       big shared state portals don't require hand-written field configs.
+- [ ] Discovery live-demo script: wire a web-search-grounded `generate`
+      (gateway or SDK) and watch it find + verify a real city's sources.
+      Needs eyes and tokens, so it's a supervised script, not CI.
+- [ ] Nonprofit filing dates: the live smoke returned records with null
+      dates ("Scranton Tomorrow (null)") — derive a usable date from the
+      filing tax period instead of leaving recent-activity views unsortable.
 
 ## Later / on demand
 
