@@ -69,8 +69,23 @@ export async function ingestSocrataRecords(
 
   let offset = 0;
   const records: CivicRecord[] = [];
+  // Page cap (parallel to nonprofit_explorer's): huge datasets like a big
+  // city's 311 feed can hold a million rows per month, and unbounded
+  // pagination both hammers the public API and floods the sink. Found live:
+  // the first smoke test against NYC 311 ingested 975k records. Override
+  // with meta.maxPages for deliberate bulk pulls.
+  const maxPages = meta.maxPages ?? 20;
+  let pages = 0;
 
   while (true) {
+    if (pages >= maxPages) {
+      await ctx.logger?.log(
+        `[${locality.name}] socrata: hit page cap (${maxPages} × ${PAGE_LIMIT}) — results may be incomplete; raise meta.maxPages for bulk pulls`,
+        "warn",
+      );
+      break;
+    }
+    pages++;
     const params = new URLSearchParams({
       $limit: String(PAGE_LIMIT),
       $offset: String(offset),

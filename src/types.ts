@@ -72,6 +72,10 @@ export interface CivicAdapterMeta {
 
   // Nonprofit Explorer: comma-separated NTEE major group letters, e.g. "A,B"
   nteeFilter?: string;
+
+  /** Socrata: pagination cap (pages × 1000 rows). Default 20 — big-city
+   *  datasets can hold millions of rows; raise deliberately for bulk pulls. */
+  maxPages?: number;
 }
 
 /** The source being ingested (id is yours; url/name help some adapters). */

@@ -1,5 +1,5 @@
 // Legistar REST API client for council meeting minutes.
-// Covers ~3,500 US city/county councils at https://{clientId}.legistar.com/v1/
+// Covers ~3,500 US city/county councils via https://webapi.legistar.com/v1/{clientId}/
 // clientId is usually the lowercase city name; set it in meta.clientId.
 import { createRequire } from "node:module";
 import type {
@@ -51,7 +51,11 @@ type FetchCtx = Pick<AdapterContext, "fetch" | "userAgent">;
 
 async function legistarGet<T>(clientId: string, path: string, ctx: FetchCtx): Promise<T> {
   const res = await ctxFetch(ctx)(
-    `https://${encodeURIComponent(clientId)}.legistar.com/v1/${path}`,
+    // Granicus documents the Legistar Web API at webapi.legistar.com/v1/
+    // with the client name as the first path segment. The {client}
+    // .legistar.com subdomain serves the human-facing InSite portal and
+    // 404s API paths (confirmed against a live client in the first smoke).
+    `https://webapi.legistar.com/v1/${encodeURIComponent(clientId)}/${path}`,
     { headers: { Accept: "application/json", "User-Agent": ctxUserAgent(ctx) } }
   );
   if (!res.ok) throw new Error(`Legistar ${clientId} ${path} → ${res.status}`);
