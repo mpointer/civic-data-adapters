@@ -33,7 +33,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build",
+    "smoke": "npm run build && node scripts/smoke.mjs"
   },
   "keywords": [
     "civic-tech",
