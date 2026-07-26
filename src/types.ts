@@ -127,6 +127,16 @@ export interface AdapterContext {
   /** Skip robots.txt checking (it is ON by default; fail-open on errors). */
   skipRobotsCheck?: boolean;
   /**
+   * Bring-your-own robots.txt check. When provided, this runs INSTEAD of
+   * the package's bundled checker (and `skipRobotsCheck` is irrelevant).
+   * Return true to allow the request. For consumers that already have a
+   * tested, possibly-cached robots implementation and want the package's
+   * request-gating without a second, redundant robots.txt fetch. Same
+   * pattern as the `summarize` hook: the package's other reach-out-to-the-
+   * network-on-your-behalf seam, made injectable.
+   */
+  robotsCheck?: (url: string) => Promise<boolean>;
+  /**
    * Optional LLM hook for adapters that summarize or parse unstructured
    * text (legistar agenda summaries; REQUIRED by html_minutes, which cannot
    * parse free-form minutes without it). Bring any LLM; the docs show
@@ -157,6 +167,8 @@ export interface DiscoveryContext {
   userAgent?: string;
   logger?: CivicLogger;
   skipRobotsCheck?: boolean;
+  /** Bring-your-own robots.txt check; see AdapterContext.robotsCheck. */
+  robotsCheck?: (url: string) => Promise<boolean>;
 }
 
 /** A verified, ready-to-ingest source proposal. `meta` drops straight into
