@@ -19,29 +19,68 @@ import { parseCandidateJson, localityCityName } from "./candidates.js";
 const require = createRequire(import.meta.url);
 
 const MAX_CANDIDATES = 4;
+const MIN_CLASSIFY_PROBABILITY = 0.6;
+const SAMPLE_CHARS = 1_500;
 
-async function tryHtml(url: string, ctx: DiscoveryContext): Promise<number> {
-  if (!(await robotsAllows(url, ctx))) return 0;
+/** What a format check found: how many rows parsed, plus text to classify. */
+interface CheckResult {
+  rows: number;
+  sample: string;
+}
+const NONE: CheckResult = { rows: 0, sample: "" };
+
+/**
+ * Optional ctx.classify gate: do the parsed rows actually look like a police
+ * blotter? Parsers alone accept any table with 2+ rows. Fails open on
+ * classifier errors so discovery never gets WORSE by opting in.
+ */
+async function looksLikeBlotter(
+  sample: string,
+  ctx: DiscoveryContext
+): Promise<{ accepted: boolean; note: string }> {
+  if (!ctx.classify) return { accepted: true, note: "" };
+  try {
+    const { label, probability } = await ctx.classify(
+      "Is this text a log of individual police incidents (date, offense, location)?",
+      sample,
+      ["police_blotter", "other"]
+    );
+    const accepted = label === "police_blotter" && probability >= MIN_CLASSIFY_PROBABILITY;
+    return { accepted, note: ` (classifier: ${label} ${probability.toFixed(2)})` };
+  } catch (err) {
+    await ctx.logger?.log(`blotter discovery: classifier failed, trusting parsers — ${err}`, "warn");
+    return { accepted: true, note: "" };
+  }
+}
+
+async function tryHtml(url: string, ctx: DiscoveryContext): Promise<CheckResult> {
+  if (!(await robotsAllows(url, ctx))) return NONE;
   try {
     const res = await ctxFetch(ctx)(url, {
       headers: { "User-Agent": ctxUserAgent(ctx) },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) return 0;
-    return parseBlotterHtml(await res.text()).length;
+    if (!res.ok) return NONE;
+    const rows = parseBlotterHtml(await res.text());
+    const sample = rows
+      .slice(0, 8)
+      .map((r) => [r.date, r.type, r.location, r.description].filter(Boolean).join(" | "))
+      .join("\n")
+      .slice(0, SAMPLE_CHARS);
+    return { rows: rows.length, sample };
   } catch {
-    return 0;
+    return NONE;
   }
 }
 
-async function tryPdf(url: string, ctx: DiscoveryContext): Promise<number> {
-  if (!(await robotsAllows(url, ctx))) return 0;
+async function tryPdf(url: string, ctx: DiscoveryContext): Promise<CheckResult> {
+  if (!(await robotsAllows(url, ctx))) return NONE;
   try {
     const res = await ctxFetch(ctx)(url, {
       headers: { "User-Agent": ctxUserAgent(ctx) },
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) return 0;
+    if (!res.ok) return NONE;
     const buf = Buffer.from(await res.arrayBuffer());
     // Lazy require keeps pdf-parse out of bundler static analysis and off the
     // startup path (same pattern as the blotter_pdf adapter).
@@ -50,9 +89,15 @@ async function tryPdf(url: string, ctx: DiscoveryContext): Promise<number> {
       o?: { max?: number }
     ) => Promise<{ text: string }>;
     const parsed = await pdfParse(buf, { max: 20 });
-    return extractIncidents(parsed.text).length;
+    const incidents = extractIncidents(parsed.text);
+    const sample = incidents
+      .slice(0, 8)
+      .map((i) => i.text)
+      .join("\n")
+      .slice(0, SAMPLE_CHARS);
+    return { rows: incidents.length, sample };
   } catch {
-    return 0;
+    return NONE;
   }
 }
 
@@ -111,7 +156,7 @@ Find a public incident log / blotter page or PDF for this city's police departme
     const looksLikePdf = /\.pdf(\?|$)/i.test(url);
     const order: Array<{
       provider: "blotter_html" | "blotter_pdf";
-      check: (u: string, c: DiscoveryContext) => Promise<number>;
+      check: (u: string, c: DiscoveryContext) => Promise<CheckResult>;
       what: string;
     }> = looksLikePdf
       ? [
@@ -124,8 +169,16 @@ Find a public incident log / blotter page or PDF for this city's police departme
         ];
 
     for (const { provider, check, what } of order) {
-      const rows = await check(url, ctx);
+      const { rows, sample } = await check(url, ctx);
       if (rows > 0) {
+        const gate = await looksLikeBlotter(sample, ctx);
+        if (!gate.accepted) {
+          await ctx.logger?.log(
+            `[${locality.name}] blotter discovery: ${url} parsed as ${provider} but classifier rejected it${gate.note}`,
+            "warn"
+          );
+          continue;
+        }
         await ctx.logger?.log(
           `[${locality.name}] blotter discovery: verified ${url} as ${provider} (${rows} rows)`
         );
@@ -135,7 +188,7 @@ Find a public incident log / blotter page or PDF for this city's police departme
             name: `${cityName} Police Blotter`,
             url,
             meta: { provider, url, recordType: "police_blotter" },
-            evidence: `parsed ${rows} ${what} just now`,
+            evidence: `parsed ${rows} ${what} just now${gate.note}`,
           },
         ];
       }

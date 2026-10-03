@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import type {
   Locality,
   CivicSource,
-  CivicAdapterMeta,
+  MetaFor,
   AdapterContext,
   AdapterResult,
   CivicRecord,
@@ -81,7 +81,7 @@ export function extractIncidents(text: string): ParsedIncident[] {
 export async function ingestPdfBlotter(
   locality: Locality,
   source: CivicSource,
-  meta: CivicAdapterMeta,
+  meta: MetaFor<"blotter_pdf">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
   const url = meta.url ?? source.url;

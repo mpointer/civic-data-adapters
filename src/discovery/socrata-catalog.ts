@@ -11,7 +11,7 @@
 // dedupes within its own result set.
 import type {
   Locality,
-  CivicAdapterMeta,
+  SocrataMeta,
   DiscoveryContext,
   DiscoveredSource,
 } from "../types.js";
@@ -151,7 +151,7 @@ function pickColumns(candidates: readonly string[], fieldNames: string[]): strin
   return result;
 }
 
-function buildMeta(result: CatalogResult, pattern: (typeof PATTERNS)[number]): CivicAdapterMeta {
+function buildMeta(result: CatalogResult, pattern: (typeof PATTERNS)[number]): SocrataMeta {
   const fields = result.resource.columns_field_name;
 
   const dateField = pickColumn(pattern.dateFields, fields);

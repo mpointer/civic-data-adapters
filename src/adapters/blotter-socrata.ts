@@ -11,14 +11,14 @@
 import type {
   Locality,
   CivicSource,
-  CivicAdapterMeta,
+  MetaFor,
   AdapterContext,
   AdapterResult,
   CivicRecord,
   CivicRecordType,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent } from "../internal.js";
-import { sanitizeCivicDate } from "../registry.js";
+import { sanitizeCivicDate } from "../dates.js";
 
 const WINDOW_DAYS = 90;
 const PAGE_LIMIT = 1000;
@@ -48,7 +48,7 @@ function pickField(row: SocrataRow, candidates: string[]): string {
 export async function ingestSocrataRecords(
   locality: Locality,
   source: CivicSource,
-  meta: CivicAdapterMeta,
+  meta: MetaFor<"socrata">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
   if (!meta.url || !meta.resourceId) {

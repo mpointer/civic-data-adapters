@@ -17,61 +17,15 @@ import { ingestCrimewatchBlotter } from "./adapters/blotter-crimewatch.js";
 import { ingestUSASpending } from "./adapters/usaspending.js";
 import { ingestNonprofitExplorer } from "./adapters/nonprofit.js";
 
-// Civic source data is often messy (a state open-data field can hold a typo'd
-// or genuinely wrong date — one state kennel-inspection row arrived dated
-// nearly two years in the future, caught in a production review). The record
-// date typically drives every "recent activity" view downstream, so an
-// unvalidated future date doesn't just look odd — it can make a page
-// permanently claim there's upcoming/current activity that hasn't happened.
-// Reject anything more than a year out rather than trusting the raw source
-// value.
-const MAX_FUTURE_DAYS = 366;
+export { sanitizeCivicDate } from "./dates.js";
 
-export function sanitizeCivicDate(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const iso = raw.slice(0, 10);
-  const parsed = new Date(iso + "T00:00:00Z");
-  if (Number.isNaN(parsed.getTime())) return null;
-  if (parsed.getTime() > Date.now() + MAX_FUTURE_DAYS * 86_400_000) return null;
-  return iso;
+async function stub(provider: string, locality: Locality, ctx: AdapterContext): Promise<AdapterResult> {
+  await ctx.logger?.log(
+    `[${locality.name}] ${provider}: no public API available — manual setup required; skipping`,
+    "warn"
+  );
+  return { inserted: 0, skipped: 0 };
 }
-
-type CivicAdapter = (
-  locality: Locality,
-  source: CivicSource,
-  meta: CivicAdapterMeta,
-  ctx: AdapterContext
-) => Promise<AdapterResult>;
-
-function stubAdapter(provider: string): CivicAdapter {
-  return async (_locality, _source, _meta, ctx) => {
-    await ctx.logger?.log(
-      `${provider}: no public API available — manual setup required; skipping`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
-  };
-}
-
-const CIVIC_ADAPTERS: Record<string, CivicAdapter> = {
-  legistar: async (locality, source, meta, ctx) => {
-    const result = await ingestLegistar(locality, source, meta, ctx);
-    await ctx.logger?.log(
-      `[${locality.name}] legistar: +${result.inserted} records, ${result.skipped} already present`
-    );
-    return result;
-  },
-  html_minutes: ingestHtmlMinutes,
-  socrata: ingestSocrataRecords,
-  blotter_html: ingestHtmlBlotter,
-  blotter_pdf: ingestPdfBlotter,
-  blotter_crimewatch: ingestCrimewatchBlotter,
-  usaspending: ingestUSASpending,
-  nonprofit_explorer: ingestNonprofitExplorer,
-  granicus: stubAdapter("granicus"),
-  civicplus: stubAdapter("civicplus"),
-  boarddocs: stubAdapter("boarddocs"),
-};
 
 export async function runAdapter(
   locality: Locality,
@@ -79,16 +33,46 @@ export async function runAdapter(
   meta: CivicAdapterMeta,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
-  const provider = meta.provider ?? "legistar";
-  const adapter = CIVIC_ADAPTERS[provider];
+  // Metadata often arrives as untyped JSON, so tolerate what the types forbid:
+  // a missing provider has always meant legistar.
+  const resolved = (
+    (meta as { provider?: string }).provider === undefined ? { ...meta, provider: "legistar" } : meta
+  ) as CivicAdapterMeta;
 
-  if (!adapter) {
-    await ctx.logger?.log(
-      `[${locality.name}] source ${source.id}: unknown provider '${provider}' — skipping`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
+  switch (resolved.provider) {
+    case "legistar": {
+      const result = await ingestLegistar(locality, source, resolved, ctx);
+      await ctx.logger?.log(
+        `[${locality.name}] legistar: +${result.inserted} records, ${result.skipped} already present`
+      );
+      return result;
+    }
+    case "html_minutes":
+      return ingestHtmlMinutes(locality, source, resolved, ctx);
+    case "socrata":
+      return ingestSocrataRecords(locality, source, resolved, ctx);
+    case "blotter_html":
+      return ingestHtmlBlotter(locality, source, resolved, ctx);
+    case "blotter_pdf":
+      return ingestPdfBlotter(locality, source, resolved, ctx);
+    case "blotter_crimewatch":
+      return ingestCrimewatchBlotter(locality, source, resolved, ctx);
+    case "usaspending":
+      return ingestUSASpending(locality, source, resolved, ctx);
+    case "nonprofit_explorer":
+      return ingestNonprofitExplorer(locality, source, resolved, ctx);
+    case "granicus":
+    case "civicplus":
+    case "boarddocs":
+      return stub(resolved.provider, locality, ctx);
+    default: {
+      // Unreachable by type; reachable at runtime with bad stored JSON.
+      const unknown = (resolved as { provider: unknown }).provider;
+      await ctx.logger?.log(
+        `[${locality.name}] source ${source.id}: unknown provider '${String(unknown)}' — skipping`,
+        "warn"
+      );
+      return { inserted: 0, skipped: 0 };
+    }
   }
-
-  return adapter(locality, source, meta, ctx);
 }

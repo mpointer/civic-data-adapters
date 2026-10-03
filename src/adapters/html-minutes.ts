@@ -2,10 +2,12 @@
 // minutes have no reliable structure, so this adapter REQUIRES ctx.summarize
 // (an LLM callback) to extract structured action items; without it the
 // adapter logs a warning and skips.
+import { sanitizeCivicDate } from "../dates.js";
+import { parseMinutesItems } from "../validate.js";
 import type {
   Locality,
   CivicSource,
-  CivicAdapterMeta,
+  MetaFor,
   AdapterContext,
   AdapterResult,
   CivicRecord,
@@ -57,17 +59,10 @@ async function fetchText(
   }
 }
 
-interface RawActionItem {
-  title?: string;
-  action?: string | null;
-  result?: string | null;
-  date?: string | null;
-}
-
 export async function ingestHtmlMinutes(
   locality: Locality,
   source: CivicSource,
-  meta: CivicAdapterMeta,
+  meta: MetaFor<"html_minutes">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
   if (!ctx.summarize) {
@@ -99,28 +94,35 @@ export async function ingestHtmlMinutes(
     return { inserted: 0, skipped: 0 };
   }
 
-  let items: RawActionItem[] = [];
+  let raw: string;
   try {
-    const raw = await ctx.summarize(PARSE_SYSTEM, fetched.text);
-    const json = raw.replace(/^```json\n?/, "").replace(/\n?```$/, "");
-    items = JSON.parse(json) as RawActionItem[];
-    if (!Array.isArray(items)) items = [];
-  } catch {
-    await ctx.logger?.log(`[${locality.name}] html_minutes ${url}: parse failed`, "warn");
+    raw = await ctx.summarize(PARSE_SYSTEM, fetched.text);
+  } catch (err) {
+    await ctx.logger?.log(`[${locality.name}] html_minutes ${url}: summarize failed — ${err}`, "warn");
     return { inserted: 0, skipped: 0 };
+  }
+  const parsed = parseMinutesItems(raw);
+  if (!parsed.ok) {
+    await ctx.logger?.log(`[${locality.name}] html_minutes ${url}: parse failed — ${parsed.error}`, "warn");
+    return { inserted: 0, skipped: 0 };
+  }
+  if (parsed.value.dropped > 0) {
+    await ctx.logger?.log(
+      `[${locality.name}] html_minutes ${url}: dropped ${parsed.value.dropped} malformed item(s)`,
+      "warn"
+    );
   }
 
   const records: CivicRecord[] = [];
-  for (const item of items.slice(0, 50)) {
-    if (!item.title?.trim()) continue;
+  for (const item of parsed.value.items.slice(0, 50)) {
     // Deterministic dedup key: source id + content hash
     const key = `htmlminutes:${source.id}:${Buffer.from(item.title).toString("base64").slice(0, 12)}`;
     records.push({
       provider: "html_minutes",
       type: "council_meeting",
-      title: item.title.trim(),
+      title: item.title,
       summary: [item.action, item.result].filter(Boolean).join(" — ") || null,
-      date: item.date ?? null,
+      date: sanitizeCivicDate(item.date),
       url,
       dedupeKey: key,
       localityName: locality.name,

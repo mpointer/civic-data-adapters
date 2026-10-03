@@ -47,6 +47,15 @@ const result = await runAdapter(
 // result: { inserted, skipped }
 ```
 
+`CivicAdapterMeta` is a union discriminated on `provider`, so each provider's required fields are enforced at compile time (`socrata` needs `url` and `resourceId`; `legistar` needs `clientId`) and one provider's fields don't type-check on another. Metadata you read back from a database is untyped JSON, so validate it first:
+
+```ts
+import { parseAdapterMeta } from "civic-data-adapters";
+
+const parsed = parseAdapterMeta(row.metadata); // { ok: true, value } | { ok: false, error }
+if (parsed.ok) await runAdapter(locality, source, parsed.value, ctx);
+```
+
 Every record carries a stable `dedupeKey` (provider plus the source's natural id plus date), so sinks can upsert idempotently. `MemorySink` ships for tests and dry runs; a real deployment implements the one-method `CivicRecordSink` interface over its own storage.
 
 Other things the context controls: `fetch` override (tests, proxies), `userAgent`, and robots.txt checking, which is on by default and fails open. Dates pass through `sanitizeCivicDate`, which rejects unparseable values and anything more than a year in the future, because open-data date fields do contain typos and a bad future date can make a "recent activity" view permanently wrong. That one comes from production experience.
@@ -84,6 +93,8 @@ const sources = await discover(
 // evidence reads like "parsed 12 HTML blotter rows just now"
 // meta drops straight into runAdapter — after a human approves it.
 ```
+
+Discovery also accepts an optional `classify` hook, a closed-set classifier `(task, text, labels) => Promise<{ label, probability }>`. When provided, a blotter candidate that the parsers accept must also be classified as a police blotter (probability ≥ 0.6), which catches non-blotter tables that happen to parse as rows. It is an extra gate only: absent, behavior is unchanged; if it throws, discovery fails open.
 
 Individual entry points also exist: `discoverBlotter`, `discoverMeetingPortal`, and `searchSocrataCatalog` (the catalog one needs no LLM at all).
 
