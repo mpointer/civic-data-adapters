@@ -10,7 +10,7 @@
 import type {
   Locality,
   CivicSource,
-  CivicAdapterMeta,
+  MetaFor,
   AdapterContext,
   AdapterResult,
   CivicRecord,
@@ -97,7 +97,7 @@ function isoSince(days: number): string {
 export async function ingestNonprofitExplorer(
   locality: Locality,
   source: CivicSource,
-  meta: CivicAdapterMeta,
+  meta: MetaFor<"nonprofit_explorer">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
   if (!locality.state) {

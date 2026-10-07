@@ -3,6 +3,7 @@
 // so try the cleaned text first, then the outermost [...] slice. Anything
 // unparseable yields [] — discovery treats that as "no candidates", never an
 // error.
+import { extractJsonArray } from "../validate.js";
 
 /** Parse an LLM reply into candidate objects, keeping only entries whose
  *  `key` field is a non-empty string. */
@@ -10,20 +11,10 @@ export function parseCandidateJson<K extends string>(
   raw: string,
   key: K
 ): Array<Record<K, string>> {
-  const cleaned = raw.replace(/^```json\n?/, "").replace(/\n?```$/, "");
-  for (const text of [cleaned, cleaned.slice(cleaned.indexOf("["), cleaned.lastIndexOf("]") + 1)]) {
-    try {
-      const arr = JSON.parse(text) as Array<Record<K, unknown>>;
-      if (Array.isArray(arr)) {
-        return arr.filter(
-          (c): c is Record<K, string> => typeof c?.[key] === "string" && c[key].trim() !== ""
-        );
-      }
-    } catch {
-      /* try next */
-    }
-  }
-  return [];
+  const arr = extractJsonArray(raw) as Array<Record<K, unknown>> | null;
+  return (arr ?? []).filter(
+    (c): c is Record<K, string> => typeof c?.[key] === "string" && c[key].trim() !== ""
+  );
 }
 
 /** "Pittsburgh, PA" → "Pittsburgh"; prefers the explicit city field. */

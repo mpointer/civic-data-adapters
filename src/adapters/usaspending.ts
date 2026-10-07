@@ -10,13 +10,13 @@
 import type {
   Locality,
   CivicSource,
-  CivicAdapterMeta,
+  MetaFor,
   AdapterContext,
   AdapterResult,
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent } from "../internal.js";
-import { sanitizeCivicDate } from "../registry.js";
+import { sanitizeCivicDate } from "../dates.js";
 
 const BASE_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/";
 const PAGE_SIZE = 100;
@@ -204,7 +204,7 @@ async function fetchAwardGroup(
 export async function ingestUSASpending(
   locality: Locality,
   source: CivicSource,
-  meta: CivicAdapterMeta,
+  meta: MetaFor<"usaspending">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
   if (!locality.state) {

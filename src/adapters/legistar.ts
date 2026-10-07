@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import type {
   Locality,
   CivicSource,
-  CivicAdapterMeta,
+  MetaFor,
   AdapterContext,
   AdapterResult,
   CivicRecord,
@@ -99,7 +99,7 @@ export async function extractPdfText(url: string, ctx: FetchCtx = {}): Promise<s
 export async function ingestLegistar(
   locality: Locality,
   source: CivicSource,
-  meta: CivicAdapterMeta,
+  meta: MetaFor<"legistar">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
   const clientId = meta.clientId;

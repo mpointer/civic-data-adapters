@@ -7,7 +7,7 @@
 import type {
   Locality,
   CivicSource,
-  CivicAdapterMeta,
+  MetaFor,
   AdapterContext,
   AdapterResult,
   CivicRecord,
@@ -27,13 +27,16 @@ interface BlotterRow {
 function parseIsoDate(raw: string): string | null {
   if (!raw) return null;
   const clean = raw.trim();
-  const m = clean.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  // ISO first: the m/d/y pattern below would otherwise match the tail of
+  // "2026-03-06" as "26-03-06" and return garbage like "2006-26-03".
+  const isoMatch = clean.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1]!;
+  const m = clean.match(/(?<!\d)(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
   if (m) {
     const year = m[3]!.length === 2 ? `20${m[3]}` : m[3];
     return `${year}-${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}`;
   }
-  const isoMatch = clean.match(/^(\d{4}-\d{2}-\d{2})/);
-  return isoMatch ? isoMatch[1]! : null;
+  return null;
 }
 
 // Lightweight HTML table parser — no external dependency needed.
@@ -122,7 +125,7 @@ export function parseBlotterHtml(html: string, overrides: ColOverrides = {}): Bl
 export async function ingestHtmlBlotter(
   locality: Locality,
   source: CivicSource,
-  meta: CivicAdapterMeta,
+  meta: MetaFor<"blotter_html">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
   const url = meta.url ?? source.url;

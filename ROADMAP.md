@@ -27,9 +27,10 @@ as the documented but never required provider.
 
 ## v0.2 candidates that aren't discovery
 
-- [ ] Recorded-fixture tests for the blotter adapters (HTML/PDF/CrimeWatch) —
-      they're currently covered structurally but not against captured real
-      pages, and blotter markup drift is the most likely breakage.
+- [ ] Recorded-fixture tests for the blotter adapters (HTML/PDF/CrimeWatch).
+      Synthetic-fixture tests now cover the parsing logic, but they were
+      written by hand, not captured from live pages, so they cannot catch real
+      markup drift — the most likely breakage. Replace with captured pages.
 - [ ] Politeness controls: per-host request spacing and honoring
       crawl-delay, beyond the existing robots.txt allow/deny. Public civic
       infrastructure deserves gentler defaults than commercial APIs.

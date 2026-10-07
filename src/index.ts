@@ -1,5 +1,7 @@
 export * from "./types.js";
 export { runAdapter, sanitizeCivicDate } from "./registry.js";
+export { parseAdapterMeta, parseMinutesItems, extractJsonArray } from "./validate.js";
+export type { ParseResult, MinutesItem } from "./validate.js";
 export { isAllowedByRobots } from "./robots.js";
 export type { RobotsCheckOptions, Rule } from "./robots.js";
 export { ingestLegistar, verifyLegistarClient, extractPdfText } from "./adapters/legistar.js";

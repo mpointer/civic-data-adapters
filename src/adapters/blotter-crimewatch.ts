@@ -16,7 +16,7 @@
 import type {
   Locality,
   CivicSource,
-  CivicAdapterMeta,
+  MetaFor,
   AdapterContext,
   AdapterResult,
   CivicRecord,
@@ -264,7 +264,7 @@ export async function fetchCrimewatchIncidents(
 export async function ingestCrimewatchBlotter(
   locality: Locality,
   source: CivicSource,
-  meta: CivicAdapterMeta,
+  meta: MetaFor<"blotter_crimewatch">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
   const url = meta.url ?? source.url;

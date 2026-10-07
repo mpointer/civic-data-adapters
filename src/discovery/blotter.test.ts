@@ -81,3 +81,59 @@ describe("discoverBlotter propose→verify", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("discoverBlotter optional classify gate", () => {
+  it("accepts when the classifier agrees, and records its confidence as evidence", async () => {
+    const { ctx } = makeCtx([GOOD_URL]);
+    const classify = vi.fn(async () => ({ label: "police_blotter", probability: 0.93 }));
+    ctx.classify = classify;
+    const sources = await discoverBlotter(locality, ctx);
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.evidence).toContain("classifier: police_blotter 0.93");
+    // The classifier saw parsed row text, not raw HTML.
+    const [task, text, labels] = classify.mock.calls[0] as unknown as [string, string, string[]];
+    expect(task).toContain("police incidents");
+    expect(text).toContain("Theft");
+    expect(text).not.toContain("<table");
+    expect(labels).toEqual(["police_blotter", "other"]);
+  });
+
+  it("rejects a candidate the parsers accepted but the classifier calls something else", async () => {
+    const { ctx, log } = makeCtx([GOOD_URL]);
+    ctx.classify = vi.fn(async () => ({ label: "other", probability: 0.97 }));
+    expect(await discoverBlotter(locality, ctx)).toEqual([]);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("classifier rejected"), "warn");
+  });
+
+  it("rejects a low-confidence blotter verdict", async () => {
+    const { ctx } = makeCtx([GOOD_URL]);
+    ctx.classify = vi.fn(async () => ({ label: "police_blotter", probability: 0.4 }));
+    expect(await discoverBlotter(locality, ctx)).toEqual([]);
+  });
+
+  it("falls through to the next candidate when the first is rejected", async () => {
+    const { ctx } = makeCtx([GOOD_URL, GOOD_URL + "?page=2"]);
+    ctx.fetch = (async () => ({ ok: true, text: async () => BLOTTER_HTML }) as unknown as Response) as typeof fetch;
+    let n = 0;
+    ctx.classify = vi.fn(async () => (n++ === 0 ? { label: "other", probability: 0.9 } : { label: "police_blotter", probability: 0.9 }));
+    const sources = await discoverBlotter(locality, ctx);
+    expect(sources[0]?.url).toBe(GOOD_URL + "?page=2");
+  });
+
+  it("fails open when the classifier throws", async () => {
+    const { ctx, log } = makeCtx([GOOD_URL]);
+    ctx.classify = vi.fn(async () => {
+      throw new Error("quota");
+    });
+    const sources = await discoverBlotter(locality, ctx);
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.evidence).not.toContain("classifier");
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("classifier failed"), "warn");
+  });
+
+  it("is a no-op when classify is not provided", async () => {
+    const { ctx } = makeCtx([GOOD_URL]);
+    const sources = await discoverBlotter(locality, ctx);
+    expect(sources[0]?.evidence).toBe("parsed 2 HTML blotter rows just now");
+  });
+});

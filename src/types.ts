@@ -38,18 +38,30 @@ export type CivicRecordType =
   | "nonprofit_filing"
   | "legislation";
 
-/** Per-source adapter configuration (stored however you like; often JSON on
- *  a sources table). Field meanings are provider-specific — see README. */
-export interface CivicAdapterMeta {
-  provider: CivicProvider;
-  clientId?: string;
-  url?: string;
-  resourceId?: string;
-  docType?: "planning_board" | "school_board" | "council";
+/** Legistar Web API source. `clientId` is the {clientId}.legistar.com slug. */
+export interface LegistarMeta {
+  provider: "legistar";
+  clientId: string;
+  /** ISO date lower bound for meetings (default: 30 days back). */
   since?: string;
+}
 
-  // Socrata
+/** Free-form HTML/PDF minutes parsed by the caller's LLM (`ctx.summarize`). */
+export interface HtmlMinutesMeta {
+  provider: "html_minutes";
+  url?: string;
+  docType?: "planning_board" | "school_board" | "council";
+}
+
+/** Socrata open-data dataset. Field names are dataset-specific. */
+export interface SocrataMeta {
+  provider: "socrata";
+  /** Portal origin, e.g. "https://data.example.gov". */
+  url: string;
+  /** Socrata dataset id (four-by-four), e.g. "abcd-1234". */
+  resourceId: string;
   recordType?: CivicRecordType;
+  since?: string;
   dateField?: string;
   typeField?: string;
   locationField?: string;
@@ -58,25 +70,79 @@ export interface CivicAdapterMeta {
   amountField?: string;
   titleFields?: string[];
   summaryFields?: string[];
+  /** Pagination cap (pages × 1000 rows). Default 20 — big-city datasets can
+   *  hold millions of rows; raise deliberately for bulk pulls. */
+  maxPages?: number;
+}
 
-  // HTML blotter column index overrides (0-based)
+/** HTML police-blotter table; optional 0-based column index overrides. */
+export interface BlotterHtmlMeta {
+  provider: "blotter_html";
+  url?: string;
+  recordType?: CivicRecordType;
   dateCol?: number;
   typeCol?: number;
   locCol?: number;
   descCol?: number;
   caseCol?: number;
+}
 
-  // USASpending
+/** PDF police blotter. */
+export interface BlotterPdfMeta {
+  provider: "blotter_pdf";
+  url?: string;
+  recordType?: CivicRecordType;
+  since?: string;
+}
+
+/** CrimeWatch-hosted blotter (PA-centric Drupal platform). */
+export interface BlotterCrimewatchMeta {
+  provider: "blotter_crimewatch";
+  url?: string;
+  recordType?: CivicRecordType;
+}
+
+/** Recognized-but-STUB providers: no public API, manual setup required. */
+export interface StubProviderMeta {
+  provider: "granicus" | "civicplus" | "boarddocs";
+  url?: string;
+}
+
+/** USASpending.gov awards. */
+export interface UsaspendingMeta {
+  provider: "usaspending";
   awardTypes?: "contracts" | "grants" | "all";
   lookbackDays?: number;
-
-  // Nonprofit Explorer: comma-separated NTEE major group letters, e.g. "A,B"
-  nteeFilter?: string;
-
-  /** Socrata: pagination cap (pages × 1000 rows). Default 20 — big-city
-   *  datasets can hold millions of rows; raise deliberately for bulk pulls. */
-  maxPages?: number;
 }
+
+/** ProPublica Nonprofit Explorer. */
+export interface NonprofitExplorerMeta {
+  provider: "nonprofit_explorer";
+  /** Comma-separated NTEE major group letters, e.g. "A,B". */
+  nteeFilter?: string;
+  lookbackDays?: number;
+}
+
+/**
+ * Per-source adapter configuration (stored however you like; often JSON on a
+ * sources table). A union discriminated on `provider`, so each provider's
+ * required fields are enforced and fields from other providers don't type-check.
+ * Metadata read back from a database is untyped JSON — run it through
+ * `parseAdapterMeta` before trusting it.
+ */
+export type CivicAdapterMeta =
+  | LegistarMeta
+  | HtmlMinutesMeta
+  | SocrataMeta
+  | BlotterHtmlMeta
+  | BlotterPdfMeta
+  | BlotterCrimewatchMeta
+  | StubProviderMeta
+  | UsaspendingMeta
+  | NonprofitExplorerMeta;
+
+/** The meta type for one provider, e.g. `MetaFor<"socrata">`. */
+export type MetaFor<P extends CivicProvider> = Extract<CivicAdapterMeta, { provider: P }>;
 
 /** The source being ingested (id is yours; url/name help some adapters). */
 export interface CivicSource {
@@ -140,6 +206,20 @@ export interface AdapterResult {
   skipped: number;
 }
 
+/** Result of a closed-set classification: one of the offered labels. */
+export interface ClassifyResult {
+  label: string;
+  /** Calibrated confidence in `label`, 0–1. */
+  probability: number;
+}
+
+/** Pick exactly one of `labels` for `text`, answering the question in `task`. */
+export type ClassifyFn = (
+  task: string,
+  text: string,
+  labels: readonly string[]
+) => Promise<ClassifyResult>;
+
 /**
  * Context for discovery functions (v0.2). Discovery PROPOSES sources via an
  * LLM callback and then VERIFIES every candidate by running the real adapter
@@ -153,6 +233,16 @@ export interface DiscoveryContext {
    * candidates; verification rejects them, which is safe but yields nothing.
    */
   generate: (systemPrompt: string, prompt: string) => Promise<string>;
+  /**
+   * Optional closed-set classifier used as an EXTRA gate on candidates that
+   * already passed the deterministic parsers (e.g. rows parsed from a table
+   * that turns out to be a staff directory, not a blotter). Back it with
+   * anything that returns a label plus a probability — a small calibrated
+   * classifier is a good fit, a general LLM works too. When absent, behavior
+   * is unchanged. When it throws, discovery fails open (parser verification
+   * stands) and logs a warning.
+   */
+  classify?: ClassifyFn;
   fetch?: typeof fetch;
   userAgent?: string;
   logger?: CivicLogger;
