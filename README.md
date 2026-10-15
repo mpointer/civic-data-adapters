@@ -56,9 +56,9 @@ const parsed = parseAdapterMeta(row.metadata); // { ok: true, value } | { ok: fa
 if (parsed.ok) await runAdapter(locality, source, parsed.value, ctx);
 ```
 
-Every record carries a stable `dedupeKey` (provider plus the source's natural id plus date), so sinks can upsert idempotently. `MemorySink` ships for tests and dry runs; a real deployment implements the one-method `CivicRecordSink` interface over its own storage.
+Every record carries a stable `dedupeKey` (provider plus the source's natural id, or for `html_minutes` the document plus a hash of the full item title), so sinks can upsert idempotently. `MemorySink` ships for tests and dry runs; a real deployment implements the one-method `CivicRecordSink` interface over its own storage.
 
-Other things the context controls: `fetch` override (tests, proxies), `userAgent`, and robots.txt checking, which is on by default and fails open. Dates pass through `sanitizeCivicDate`, which rejects unparseable values and anything more than a year in the future, because open-data date fields do contain typos and a bad future date can make a "recent activity" view permanently wrong. That one comes from production experience.
+Other things the context controls: `fetch` override (tests, proxies), `userAgent`, and robots.txt checking, which is on by default and fails open. If your codebase already has its own robots implementation, inject it with `robotsCheck: (url) => Promise<boolean>` and it runs instead of the bundled checker, so you don't pay for a second robots.txt fetch per request (`skipRobotsCheck: true` remains the blunt off switch). One testing note, learned from the first adopter's suite: the bundled checker uses `ctx.fetch`, so a test that stubs fetch and asserts call counts will see one extra call per adapter invocation unless it mocks a robots.txt response, sets `skipRobotsCheck`, or injects a `robotsCheck`. Dates pass through `sanitizeCivicDate`, which rejects unparseable values and anything more than a year in the future, because open-data date fields do contain typos and a bad future date can make a "recent activity" view permanently wrong. That one comes from production experience.
 
 ## The LLM callback
 
@@ -99,6 +99,24 @@ Discovery also accepts an optional `classify` hook, a closed-set classifier `(ta
 Individual entry points also exist: `discoverBlotter`, `discoverMeetingPortal`, and `searchSocrataCatalog` (the catalog one needs no LLM at all).
 
 Two things stated plainly. First, the prompts ask for real, current URLs, so `generate` should be backed by **web-search-grounded** generation; an ungrounded model will hallucinate candidates, which verification then rejects — safe, but you'll get nothing. Second, discovery proposes and humans approve; nothing here auto-provisions scraper targets.
+
+## Upgrading to 0.4 — `html_minutes` dedupe keys changed
+
+The `html_minutes` adapter's `dedupeKey` was `htmlminutes:<sourceId>:<first 12 chars of base64(title)>`. That is only the first nine characters of the title, so distinct items collided ("Resolution 2026-62 …" and "Resolution 2026-63 …": a real nine-item council agenda kept three), and it ignored the document, so a recurring item ("Public comment") was dropped from every meeting after the first.
+
+The key is now `htmlminutes:<sourceId>:<sha1(documentUrl + "\n" + lowercased, trimmed title), first 16 hex>`, exported as `minutesDedupeKey(sourceId, documentUrl, title)`.
+
+**If you already store `html_minutes` records**, the first run after upgrading will treat every item as new and insert it again unless you migrate. `legacyMinutesDedupeKey(sourceId, title)` reproduces the old key so you can find your stored rows and rewrite them (the document URL is the record's `url`):
+
+```ts
+for (const row of storedMinutesRows) {
+  if (row.dedupeKey === legacyMinutesDedupeKey(row.sourceId, row.title)) {
+    row.dedupeKey = minutesDedupeKey(row.sourceId, row.url, row.title);
+  }
+}
+```
+
+(Rows that collided under the old key were already lost; only the first of each colliding group is stored.) Other adapters' keys are unchanged. `blotter_html` and `blotter_pdf` fall back to a positional key when a row has no case number; that is unchanged here, and worth knowing if a source reorders its rows.
 
 ## Roadmap
 
