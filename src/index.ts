@@ -5,7 +5,7 @@ export type { ParseResult, MinutesItem } from "./validate.js";
 export { isAllowedByRobots } from "./robots.js";
 export type { RobotsCheckOptions, Rule } from "./robots.js";
 export { ingestLegistar, verifyLegistarClient, extractPdfText } from "./adapters/legistar.js";
-export { ingestHtmlMinutes } from "./adapters/html-minutes.js";
+export { ingestHtmlMinutes, minutesDedupeKey, legacyMinutesDedupeKey } from "./adapters/html-minutes.js";
 export { ingestSocrataRecords, ingestSocrataBlotter } from "./adapters/blotter-socrata.js";
 export {
   ingestHtmlBlotter,

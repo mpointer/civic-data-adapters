@@ -2,6 +2,7 @@
 // minutes have no reliable structure, so this adapter REQUIRES ctx.summarize
 // (an LLM callback) to extract structured action items; without it the
 // adapter logs a warning and skips.
+import { createHash } from "node:crypto";
 import { sanitizeCivicDate } from "../dates.js";
 import { parseMinutesItems } from "../validate.js";
 import type {
@@ -14,6 +15,32 @@ import type {
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
 import { extractPdfText } from "./legistar.js";
+
+/**
+ * Dedupe key for one extracted minutes/agenda item: the source, the document it
+ * came from, and the FULL title (trimmed, case-insensitive), hashed.
+ *
+ * Before 0.4 the key was `htmlminutes:<sourceId>:<first 12 chars of base64(title)>` —
+ * that is the first 9 characters of the title, so "Resolution 2026-62 …" and
+ * "Resolution 2026-63 …" collided (a real agenda of 9 items kept 3), and it ignored
+ * the document, so a recurring item ("Public comment") was dropped from every
+ * meeting after the first. Including the document URL keeps recurring items
+ * distinct per meeting while re-running the same document stays a no-op.
+ */
+export function minutesDedupeKey(sourceId: string | number | undefined, documentUrl: string, title: string): string {
+  const hash = createHash("sha1").update(`${documentUrl}\n${title.trim().toLowerCase()}`).digest("hex").slice(0, 16);
+  return `htmlminutes:${sourceId}:${hash}`;
+}
+
+/**
+ * The pre-0.4 key. Exported ONLY so a consumer upgrading from 0.3 can find rows stored
+ * under the old scheme and rewrite them to `minutesDedupeKey` (otherwise the first run
+ * after upgrading re-inserts items it already has). Do not use for new code.
+ * @deprecated
+ */
+export function legacyMinutesDedupeKey(sourceId: string | number | undefined, title: string): string {
+  return `htmlminutes:${sourceId}:${Buffer.from(title).toString("base64").slice(0, 12)}`;
+}
 
 const PARSE_SYSTEM = `You extract structured action items from city council meeting minutes or agendas.
 Return ONLY a JSON array. Each item: {
@@ -115,8 +142,7 @@ export async function ingestHtmlMinutes(
 
   const records: CivicRecord[] = [];
   for (const item of parsed.value.items.slice(0, 50)) {
-    // Deterministic dedup key: source id + content hash
-    const key = `htmlminutes:${source.id}:${Buffer.from(item.title).toString("base64").slice(0, 12)}`;
+    const key = minutesDedupeKey(source.id, url, item.title);
     records.push({
       provider: "html_minutes",
       type: "council_meeting",
