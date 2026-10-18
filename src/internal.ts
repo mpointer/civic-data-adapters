@@ -4,7 +4,7 @@ import type { AdapterContext } from "./types.js";
 import { isAllowedByRobots } from "./robots.js";
 
 export const DEFAULT_USER_AGENT =
-  "civic-data-adapters/0.1 (+https://github.com/mpointer/civic-data-adapters)";
+  "civic-data-adapters/0.4.0 (+https://github.com/mpointer/civic-data-adapters)";
 
 export function ctxFetch(ctx: Pick<AdapterContext, "fetch">): typeof fetch {
   return ctx.fetch ?? fetch;
