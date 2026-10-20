@@ -105,7 +105,15 @@ export async function ingestSocrataRecords(
         );
         break;
       }
-      rows = (await res.json()) as SocrataRow[];
+      const body: unknown = await res.json();
+      if (!Array.isArray(body)) {
+        await ctx.logger?.log(
+          `[${locality.name}] socrata: unexpected response shape from ${endpoint} — stopping`,
+          "warn"
+        );
+        break;
+      }
+      rows = body as SocrataRow[];
     } catch (err) {
       await ctx.logger?.log(`[${locality.name}] socrata: fetch error — ${err}`, "warn");
       break;
@@ -114,6 +122,8 @@ export async function ingestSocrataRecords(
     if (!rows.length) break;
 
     for (const row of rows) {
+      // Skip (not filter) so positional fallback ids (offset + index) stay stable.
+      if (typeof row !== "object" || row === null) continue;
       const rawDate = pickField(row, [
         dateField,
         "date",

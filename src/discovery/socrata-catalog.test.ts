@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { searchSocrataCatalog } from "./socrata-catalog.js";
-import type { Locality } from "../types.js";
+import type { Locality, DiscoveryContext } from "../types.js";
 
 const locality: Locality = { name: "Exampleville, PA", state: "PA" };
 
@@ -100,5 +100,48 @@ describe("searchSocrataCatalog", () => {
     const ctx = { fetch: fetchMock as unknown as typeof fetch, logger: { log } };
     expect(await searchSocrataCatalog(locality, "data.exampleville.gov", ctx)).toEqual([]);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("HTTP 500"), "warn");
+  });
+});
+
+describe("searchSocrataCatalog malformed catalog responses", () => {
+  const dataset = (over: Record<string, unknown> = {}) => ({
+    resource: {
+      id: "abcd-1234",
+      name: "Police Incident Reports",
+      description: "crime incidents",
+      type: "dataset",
+      columns_name: ["Date"],
+      columns_field_name: ["date", "offense_type"],
+      columns_datatype: ["text", "text"],
+      updatedAt: null,
+    },
+    link: "https://data.example.gov/d/abcd-1234",
+    metadata: { domain: "data.example.gov" },
+    classification: { categories: ["Public Safety"], tags: ["police"] },
+    ...over,
+  });
+  const run = async (body: unknown) => {
+    const log = vi.fn();
+    const ctx: DiscoveryContext = {
+      generate: vi.fn(),
+      logger: { log },
+      fetch: (async () => new Response(JSON.stringify(body))) as unknown as typeof fetch,
+    };
+    return { out: await searchSocrataCatalog({ name: "Exampleville, PA" }, "data.example.gov", ctx), log };
+  };
+
+  it("stops with a warning when results isn't an array", async () => {
+    const { out, log } = await run({ error: "boom" });
+    expect(out).toEqual([]);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("unexpected response shape"), "warn");
+  });
+
+  it("skips malformed entries and still proposes the good one; tolerates missing classification", async () => {
+    const { out } = await run({
+      resultSetSize: 3,
+      results: [null, { resource: null }, dataset({ classification: undefined })],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]?.meta).toMatchObject({ provider: "socrata", resourceId: "abcd-1234", recordType: "police_blotter" });
   });
 });

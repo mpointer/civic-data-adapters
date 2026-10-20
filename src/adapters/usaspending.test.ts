@@ -103,3 +103,58 @@ describe("ingestUSASpending pagination guard (unbounded-pagination timeout bug)"
     expect(log).not.toHaveBeenCalledWith(expect.stringContaining("time budget reached"), "warn");
   });
 });
+
+describe("ingestUSASpending malformed responses", () => {
+  const meta = { provider: "usaspending", awardTypes: "contracts" } as const;
+  const okJson = (body: unknown) => vi.fn().mockResolvedValue({ ok: true, json: async () => body });
+  const award = (over: Record<string, unknown> = {}) => ({
+    "Award ID": "A-1",
+    "Recipient Name": "Acme",
+    "Award Amount": 1000,
+    Description: "Paving",
+    "Awarding Agency": "DOT",
+    "Start Date": "2026-01-02",
+    ...over,
+  });
+
+  it("does not throw when results is missing; warns and stops", async () => {
+    const { ctx, log } = makeCtx(okJson({ detail: "Something went wrong" }));
+    await expect(ingestUSASpending(locality, source, meta, ctx)).resolves.toEqual({ inserted: 0, skipped: 0 });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("unexpected response shape"), "warn");
+  });
+
+  it("treats a missing page_metadata as the last page instead of throwing", async () => {
+    const f = okJson({ results: [award()] });
+    const { ctx } = makeCtx(f);
+    const r = await ingestUSASpending(locality, source, meta, ctx);
+    expect(r.inserted).toBe(1);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips awards with no Award ID instead of collapsing them onto one dedupe key", async () => {
+    const f = okJson({
+      results: [award({ "Award ID": null }), award({ "Award ID": "" }), award({ "Award ID": "A-2" }), award({ "Award ID": "A-3" }), 42],
+      page_metadata: { page: 1, total: 5, has_next_page: false },
+    });
+    const { ctx, log } = makeCtx(f);
+    const sink = ctx.sink as MemorySink;
+    await ingestUSASpending(locality, source, meta, ctx);
+    expect([...sink.records.keys()].sort()).toEqual(["usaspending:A-2", "usaspending:A-3"]);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("skipped 3 malformed award"), "warn");
+  });
+
+  it("keeps amount/agency/date handling for well-formed and partly-null awards", async () => {
+    const f = okJson({
+      results: [award({ "Award Amount": null, "Awarding Agency": null, "Start Date": null, "Recipient Name": null, Description: null })],
+      page_metadata: { page: 1, total: 1, has_next_page: false },
+    });
+    const { ctx } = makeCtx(f);
+    await ingestUSASpending(locality, source, meta, ctx);
+    expect([...(ctx.sink as MemorySink).records.values()][0]).toMatchObject({
+      title: "Unknown recipient",
+      summary: null,
+      date: null,
+      amountCents: null,
+    });
+  });
+});

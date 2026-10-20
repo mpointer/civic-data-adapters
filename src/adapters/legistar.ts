@@ -11,6 +11,12 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent } from "../internal.js";
+import {
+  type LegistarEventItem,
+  parseLegistarEvents,
+  parseLegistarEventItems,
+  firstAttachmentUrl,
+} from "../responses.js";
 
 const require = createRequire(import.meta.url);
 
@@ -19,37 +25,10 @@ If the document does not contain enough information, say so.
 Do not infer or add context not present.
 Write 2-3 sentences as a plain-language explanation for a local resident.`;
 
-interface LegistarEvent {
-  EventId: number;
-  EventDate: string;
-  EventTime: string;
-  EventBodyName: string;
-  EventLocation: string;
-  EventAgendaStatusName: string;
-  EventAgendaFile?: string;
-  EventMinutesFile?: string;
-}
-
-interface LegistarEventItem {
-  EventItemId: number;
-  EventItemTitle: string;
-  EventItemActionName?: string;
-  EventItemPassedFlagName?: string;
-  EventItemMatterFile?: string;
-  EventItemMatterName?: string;
-  EventItemMatterType?: string;
-  EventItemAgendaSequence?: number;
-}
-
-interface LegistarMatterAttachment {
-  MatterAttachmentId: number;
-  MatterAttachmentName: string;
-  MatterAttachmentHyperlink: string;
-}
-
 type FetchCtx = Pick<AdapterContext, "fetch" | "userAgent">;
 
-async function legistarGet<T>(clientId: string, path: string, ctx: FetchCtx): Promise<T> {
+// Returns the parsed body untyped; callers validate it with ../responses.ts.
+async function legistarGet(clientId: string, path: string, ctx: FetchCtx): Promise<unknown> {
   const res = await ctxFetch(ctx)(
     // Granicus documents the Legistar Web API at webapi.legistar.com/v1/
     // with the client name as the first path segment. The {client}
@@ -59,7 +38,7 @@ async function legistarGet<T>(clientId: string, path: string, ctx: FetchCtx): Pr
     { headers: { Accept: "application/json", "User-Agent": ctxUserAgent(ctx) } }
   );
   if (!res.ok) throw new Error(`Legistar ${clientId} ${path} → ${res.status}`);
-  return res.json() as Promise<T>;
+  return res.json();
 }
 
 export async function verifyLegistarClient(clientId: string, ctx: FetchCtx = {}): Promise<boolean> {
@@ -114,23 +93,38 @@ export async function ingestLegistar(
   const since =
     meta.since ?? new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   const afterFilter = encodeURIComponent(`EventDate ge datetime'${since}'`);
-  const events = await legistarGet<LegistarEvent[]>(
-    clientId,
-    `Events?$filter=${afterFilter}&$orderby=EventDate desc&$top=50`,
-    ctx
+  const parsedEvents = parseLegistarEvents(
+    await legistarGet(
+      clientId,
+      `Events?$filter=${afterFilter}&$orderby=EventDate desc&$top=50`,
+      ctx
+    )
   );
+  if (!parsedEvents) throw new Error(`Legistar ${clientId} Events: expected an array`);
+  if (parsedEvents.dropped > 0) {
+    await ctx.logger?.log(
+      `[${locality.name}] legistar: skipped ${parsedEvents.dropped} malformed event(s)`,
+      "warn"
+    );
+  }
+  let droppedItems = 0;
 
   const records: CivicRecord[] = [];
 
-  for (const evt of events) {
+  for (const evt of parsedEvents.rows) {
     // Fetch agenda items for this meeting
     let items: LegistarEventItem[] = [];
     try {
-      items = await legistarGet<LegistarEventItem[]>(
-        clientId,
-        `Events/${evt.EventId}/EventItems?AgendaNote=1&MinutesNote=1`,
-        ctx
+      const parsedItems = parseLegistarEventItems(
+        await legistarGet(
+          clientId,
+          `Events/${evt.EventId}/EventItems?AgendaNote=1&MinutesNote=1`,
+          ctx
+        )
       );
+      if (!parsedItems) throw new Error("EventItems: expected an array");
+      items = parsedItems.rows;
+      droppedItems += parsedItems.dropped;
     } catch {
       // Event with no items (cancelled, future-only) — still record the meeting shell
     }
@@ -140,7 +134,7 @@ export async function ingestLegistar(
       records.push({
         provider: "legistar",
         type: "council_meeting",
-        title: `${evt.EventBodyName} Meeting — ${evt.EventDate.slice(0, 10)}`,
+        title: `${evt.EventBodyName ? `${evt.EventBodyName} ` : ""}Meeting — ${evt.EventDate.slice(0, 10)}`,
         summary: null,
         url: evt.EventAgendaFile ?? null,
         date: evt.EventDate.slice(0, 10),
@@ -168,12 +162,13 @@ export async function ingestLegistar(
       let summary: string | null = null;
       if (ctx.summarize && item.EventItemMatterFile) {
         try {
-          const attachments = await legistarGet<LegistarMatterAttachment[]>(
-            clientId,
-            `MatterAttachments?$filter=MatterAttachmentMatterId eq ${item.EventItemMatterFile}&$top=1`,
-            ctx
+          const pdfUrl = firstAttachmentUrl(
+            await legistarGet(
+              clientId,
+              `MatterAttachments?$filter=MatterAttachmentMatterId eq ${item.EventItemMatterFile}&$top=1`,
+              ctx
+            )
           );
-          const pdfUrl = attachments[0]?.MatterAttachmentHyperlink;
           if (pdfUrl) {
             const pdfText = await extractPdfText(pdfUrl, ctx);
             if (pdfText) {
@@ -228,5 +223,11 @@ export async function ingestLegistar(
     }
   }
 
+  if (droppedItems > 0) {
+    await ctx.logger?.log(
+      `[${locality.name}] legistar: skipped ${droppedItems} malformed agenda item(s)`,
+      "warn"
+    );
+  }
   return ctx.sink.save(records);
 }

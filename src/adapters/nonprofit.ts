@@ -16,6 +16,7 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { parsePropublicaPage, type PropublicaPage } from "../responses.js";
 
 const BASE_URL = "https://projects.propublica.org/nonprofits/api/v2/search.json";
 
@@ -63,25 +64,6 @@ const NTEE_LABELS: Record<string, string> = {
   Y: "Mutual Benefit",
   Z: "Unknown",
 };
-
-interface PropublicaOrg {
-  ein: string;
-  name: string;
-  city: string | null;
-  state: string | null;
-  ntee_code: string | null;
-  income_amount: number | null;
-  asset_amount: number | null;
-  filing_date: string | null;
-  form_type: string | null;
-}
-
-interface PropublicaResponse {
-  total_results: number;
-  num_pages: number;
-  cur_page: number;
-  organizations: PropublicaOrg[];
-}
 
 function nteeCategory(code: string | null): string {
   if (!code) return "Nonprofit";
@@ -153,7 +135,7 @@ export async function ingestNonprofitExplorer(
       page: String(page),
     });
 
-    let data: PropublicaResponse;
+    let data: PropublicaPage | null;
     try {
       const res = await fetchImpl(`${BASE_URL}?${params}`, {
         headers: { "User-Agent": ctxUserAgent(ctx), Accept: "application/json" },
@@ -163,15 +145,29 @@ export async function ingestNonprofitExplorer(
         await ctx.logger?.log(`[${locality.name}] nonprofit_explorer: HTTP ${res.status}`, "warn");
         break;
       }
-      data = (await res.json()) as PropublicaResponse;
+      data = parsePropublicaPage(await res.json());
     } catch (err) {
       await ctx.logger?.log(`[${locality.name}] nonprofit_explorer: fetch error — ${err}`, "warn");
       break;
     }
+    if (!data) {
+      await ctx.logger?.log(
+        `[${locality.name}] nonprofit_explorer: unexpected response shape on page ${page} — stopping`,
+        "warn"
+      );
+      break;
+    }
+    if (data.dropped > 0) {
+      await ctx.logger?.log(
+        `[${locality.name}] nonprofit_explorer: skipped ${data.dropped} malformed org(s) on page ${page}`,
+        "warn"
+      );
+    }
 
-    totalPages = data.num_pages;
+    // A response without a usable num_pages keeps the count we already had.
+    totalPages = data.numPages ?? totalPages;
 
-    for (const org of data.organizations) {
+    for (const org of data.orgs) {
       // Filter to orgs actually in this city (the search query is fuzzy).
       // Some orgs come back with a null city/state — confirmed live 2026-07-10.
       if ((org.city ?? "").toUpperCase() !== cityName.toUpperCase()) continue;
@@ -201,7 +197,7 @@ export async function ingestNonprofitExplorer(
         summary: [category, income, assets].filter(Boolean).join(" · ") || null,
         url: `https://projects.propublica.org/nonprofits/organizations/${org.ein}`,
         date: org.filing_date?.slice(0, 10) ?? null,
-        dedupeKey: `propublica:nonprofit:${org.ein}`,
+        dedupeKey: `propublica:nonprofit:${String(org.ein)}`,
         localityName: locality.name,
         sourceId: source.id,
         raw: {

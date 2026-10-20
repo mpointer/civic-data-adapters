@@ -103,3 +103,20 @@ describe("ingestSocrataRecords", () => {
     expect(r.inserted).toBe(1000);
   });
 });
+
+describe("ingestSocrataRecords malformed responses", () => {
+  it("stops with a warning when the body isn't an array (error payload served as 200)", async () => {
+    const { ctx, log, sink } = setup([]);
+    ctx.fetch = (async () => new Response(JSON.stringify({ error: true, message: "nope" }))) as unknown as typeof fetch;
+    expect(await ingestSocrataRecords(locality, source, blotterMeta, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(sink.records.size).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("unexpected response shape"), "warn");
+  });
+
+  it("skips null/non-object rows without shifting positional ids of the rest", async () => {
+    const rows = [{ date: "2026-03-04", offense_type: "A" }, null, "junk", { date: "2026-03-04", offense_type: "B" }];
+    const { ctx, sink } = setup([rows]);
+    await ingestSocrataRecords(locality, source, blotterMeta, ctx);
+    expect([...sink.records.keys()]).toEqual(["socrata:abcd-1234:abcd-1234:0", "socrata:abcd-1234:abcd-1234:3"]);
+  });
+});
