@@ -95,6 +95,20 @@ interface CatalogResponse {
   resultSetSize: number;
 }
 
+// Catalog entries are third-party JSON: skip ones missing what scoring and
+// meta-building dereference. (Classification lists may be absent; scoreResult
+// defaults them.)
+function isUsableResult(r: unknown): r is CatalogResult {
+  const x = r as Partial<CatalogResult> | null;
+  if (typeof x !== "object" || x === null) return false;
+  const res = x.resource;
+  if (typeof res !== "object" || res === null) return false;
+  if (typeof res.id !== "string" || typeof res.name !== "string" || typeof res.type !== "string") return false;
+  if (!Array.isArray(res.columns_field_name)) return false;
+  if (typeof x.metadata !== "object" || x.metadata === null || typeof x.metadata.domain !== "string") return false;
+  return true;
+}
+
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9 ]/g, " ");
 }
@@ -102,8 +116,8 @@ function normalize(s: string): string {
 function scoreResult(result: CatalogResult): { score: number; patternIndex: number } {
   const name = normalize(result.resource.name);
   const desc = normalize(result.resource.description ?? "");
-  const cats = result.classification.categories.map(normalize).join(" ");
-  const tags = result.classification.tags.map(normalize).join(" ");
+  const cats = (result.classification?.categories ?? []).map(normalize).join(" ");
+  const tags = (result.classification?.tags ?? []).map(normalize).join(" ");
 
   let best = { score: 0, patternIndex: -1 };
 
@@ -218,7 +232,17 @@ export async function searchSocrataCatalog(
         );
         break;
       }
-      page = (await res.json()) as CatalogResponse;
+      const body: unknown = await res.json();
+      const results =
+        typeof body === "object" && body !== null ? (body as { results?: unknown }).results : undefined;
+      if (!Array.isArray(results)) {
+        await ctx.logger?.log(
+          `[${locality.name}] socrata catalog: unexpected response shape for ${domain} — stopping`,
+          "warn"
+        );
+        break;
+      }
+      page = body as CatalogResponse;
     } catch (err) {
       await ctx.logger?.log(`[${locality.name}] socrata catalog: fetch error — ${err}`, "warn");
       break;
@@ -226,7 +250,7 @@ export async function searchSocrataCatalog(
 
     totalResults = page.resultSetSize;
     for (const result of page.results) {
-      if (result.resource.type !== "dataset") continue;
+      if (!isUsableResult(result) || result.resource.type !== "dataset") continue;
       const { score, patternIndex } = scoreResult(result);
       if (score >= MIN_SCORE) candidates.push({ result, score, patternIndex });
     }

@@ -141,3 +141,50 @@ describe("verifyLegistarClient", () => {
     expect(await verifyLegistarClient("x", { fetch: boom as unknown as typeof fetch })).toBe(false);
   });
 });
+
+describe("ingestLegistar malformed responses", () => {
+  const meta = { provider: "legistar", clientId: "example" } as const;
+  const run = async (routes: Record<string, () => Response>, extra: Partial<AdapterContext> = {}) => {
+    const log = vi.fn();
+    const sink = new MemorySink();
+    const ctx: AdapterContext = { sink, logger: { log }, fetch: router(routes) as unknown as typeof fetch, ...extra };
+    const p = ingestLegistar(locality, source, meta, ctx);
+    return { p, sink, log };
+  };
+
+  it("skips events with a null date or missing id instead of throwing, and keeps the good ones", async () => {
+    const { p, sink, log } = await run({
+      "/Events?": () => json([{ ...EVENT, EventId: 1, EventDate: null }, { ...EVENT, EventId: undefined }, EVENT, null, "junk"]),
+      "/EventItems": () => json([]),
+    });
+    expect((await p).inserted).toBe(1);
+    expect([...sink.records.keys()]).toEqual(["legistar:example:100:meeting"]);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("skipped 4 malformed event"), "warn");
+  });
+
+  it("fails with a clear error when the events payload isn't an array", async () => {
+    const { p } = await run({ "/Events?": () => json({ Message: "An error has occurred." }) });
+    await expect(p).rejects.toThrow(/Events.*expected an array/);
+  });
+
+  it("falls back to a meeting shell when the items payload isn't an array", async () => {
+    const { p, sink } = await run({ "/Events?": () => json([EVENT]), "/EventItems": () => json({ Message: "nope" }) });
+    expect((await p).inserted).toBe(1);
+    expect([...sink.records.keys()]).toEqual(["legistar:example:100:meeting"]);
+  });
+
+  it("skips agenda items without a numeric id and tolerates a missing body name", async () => {
+    const { p, sink } = await run({
+      "/Events?": () => json([{ ...EVENT, EventBodyName: null }]),
+      "/EventItems": () => json([{ EventItemTitle: "No id" }, { EventItemId: 7, EventItemTitle: "Has id" }]),
+    });
+    expect((await p).inserted).toBe(1);
+    expect([...sink.records.keys()]).toEqual(["legistar:example:100:7"]);
+  });
+
+  it("titles a body-less meeting shell without printing 'null'", async () => {
+    const { p, sink } = await run({ "/Events?": () => json([{ ...EVENT, EventBodyName: null }]), "/EventItems": () => json([]) });
+    await p;
+    expect([...sink.records.values()][0]?.title).toBe("Meeting — 2026-03-04");
+  });
+});

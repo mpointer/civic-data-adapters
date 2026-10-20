@@ -16,6 +16,7 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent } from "../internal.js";
+import { parseUSASpendingPage, type USASpendingPage } from "../responses.js";
 import { sanitizeCivicDate } from "../dates.js";
 
 const BASE_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/";
@@ -42,19 +43,7 @@ const GRANT_CODES = ["02", "03", "04", "05"];
 // (contracts AND grants) despite being valid-looking, accepted field names —
 // the endpoint doesn't error on an unsupported field, it just nulls it. That
 // was the root cause of every contract/grant record having no date.
-interface USASpendingResult {
-  "Award ID": string;
-  "Recipient Name": string;
-  "Award Amount": number | null;
-  Description: string | null;
-  "Awarding Agency": string | null;
-  "Start Date": string | null;
-}
-
-interface USASpendingResponse {
-  results: USASpendingResult[];
-  page_metadata: { page: number; total: number; has_next_page: boolean };
-}
+// See USASpendingAward in ../responses.ts for the validated row shape.
 
 function isoSince(days: number): string {
   const d = new Date(Date.now() - days * 86400_000);
@@ -127,7 +116,7 @@ async function fetchAwardGroup(
       limit: PAGE_SIZE,
     };
 
-    let data: USASpendingResponse;
+    let data: USASpendingPage | null;
     try {
       const res = await fetchImpl(BASE_URL, {
         method: "POST",
@@ -139,13 +128,26 @@ async function fetchAwardGroup(
         await ctx.logger?.log(`[${locality.name}] usaspending: HTTP ${res.status}`, "warn");
         break;
       }
-      data = (await res.json()) as USASpendingResponse;
+      data = parseUSASpendingPage(await res.json());
     } catch (err) {
       await ctx.logger?.log(`[${locality.name}] usaspending: fetch error — ${err}`, "warn");
       break;
     }
+    if (!data) {
+      await ctx.logger?.log(
+        `[${locality.name}] usaspending (${recordType}): unexpected response shape on page ${page} — stopping`,
+        "warn"
+      );
+      break;
+    }
+    if (data.dropped > 0) {
+      await ctx.logger?.log(
+        `[${locality.name}] usaspending (${recordType}): skipped ${data.dropped} malformed award(s) on page ${page}`,
+        "warn"
+      );
+    }
 
-    for (const award of data.results) {
+    for (const award of data.awards) {
       const uniqueId = award["Award ID"];
       const amount = award["Award Amount"];
       const amountStr = amount != null ? `$${Math.round(amount).toLocaleString()}` : "";
@@ -187,7 +189,7 @@ async function fetchAwardGroup(
       });
     }
 
-    if (!data.page_metadata.has_next_page) break;
+    if (!data.hasNextPage) break;
     page++;
     if (page <= MAX_PAGES) await new Promise((r) => setTimeout(r, 500));
   }
