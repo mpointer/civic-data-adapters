@@ -28,9 +28,10 @@ as the documented but never required provider.
 ## v0.2 candidates that aren't discovery
 
 - [ ] Recorded-fixture tests for the blotter adapters (HTML/PDF/CrimeWatch).
-      Synthetic-fixture tests now cover the parsing logic, but they were
-      written by hand, not captured from live pages, so they cannot catch real
-      markup drift — the most likely breakage. Replace with captured pages.
+      The harness is built (`scripts/capture-fixtures.mjs`, `src/fixtures.test.ts`,
+      `fixtures/README.md`) and verified end-to-end against local servers, but
+      **no real page has been captured yet**: the unit tests still use synthetic
+      HTML. This item closes when real captures are committed.
 - [ ] Politeness controls: per-host request spacing and honoring
       crawl-delay, beyond the existing robots.txt allow/deny. Public civic
       infrastructure deserves gentler defaults than commercial APIs.

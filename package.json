@@ -33,7 +33,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prepublishOnly": "npm run typecheck && npm run test && npm run build",
-    "smoke": "npm run build && node scripts/smoke.mjs"
+    "smoke": "npm run build && node scripts/smoke.mjs",
+    "capture-fixture": "npm run build && node scripts/capture-fixtures.mjs"
   },
   "keywords": [
     "civic-tech",
