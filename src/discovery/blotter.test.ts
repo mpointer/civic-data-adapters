@@ -19,7 +19,7 @@ const GOOD_URL = "https://pd.exampleville.gov/blotter";
 const DEAD_URL = "https://pd.exampleville.gov/old-blotter";
 
 function makeCtx(urls: string[]) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: unknown, _init?: RequestInit) => {
     const url = String(input);
     if (url === GOOD_URL) {
       return { ok: true, text: async () => BLOTTER_HTML } as unknown as Response;
@@ -64,7 +64,7 @@ describe("discoverBlotter propose→verify", () => {
 
     // Verification used the injected fetch with the ctx User-Agent.
     for (const call of fetchMock.mock.calls) {
-      expect((call[1] as RequestInit).headers).toMatchObject({ "User-Agent": "test-agent/1.0" });
+      expect(call[1]?.headers).toMatchObject({ "User-Agent": "test-agent/1.0" });
     }
   });
 

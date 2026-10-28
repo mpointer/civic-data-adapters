@@ -15,7 +15,7 @@ import type {
   DiscoveryContext,
   DiscoveredSource,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent } from "../internal.js";
+import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
 import { localityCityName } from "./candidates.js";
 
 const CATALOG_URL = "https://api.us.socrata.com/api/catalog/v1";
@@ -224,6 +224,7 @@ export async function searchSocrataCatalog(
     try {
       const res = await ctxFetch(ctx)(`${CATALOG_URL}?${params}`, {
         headers: { "User-Agent": ctxUserAgent(ctx), Accept: "application/json" },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!res.ok) {
         await ctx.logger?.log(

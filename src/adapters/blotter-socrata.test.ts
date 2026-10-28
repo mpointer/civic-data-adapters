@@ -11,7 +11,7 @@ function setup(pages: unknown[][]) {
   const sink = new MemorySink();
   const log = vi.fn();
   let i = 0;
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify(pages[i++] ?? [])));
+  const fetchMock = vi.fn(async (_input: unknown) => new Response(JSON.stringify(pages[i++] ?? [])));
   const ctx: AdapterContext = { sink, logger: { log }, fetch: fetchMock as unknown as typeof fetch };
   return { ctx, sink, log, fetchMock };
 }

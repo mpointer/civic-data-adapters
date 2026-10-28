@@ -17,7 +17,8 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { ctxFetch, ctxUserAgent, robotsAllows, FETCH_TIMEOUT_MS } from "../internal.js";
+import { contentKey } from "../dedupe.js";
 
 const require = createRequire(import.meta.url);
 
@@ -52,7 +53,7 @@ function parseIsoDate(raw: string): string | null {
   return null;
 }
 
-interface ParsedIncident {
+export interface ParsedIncident {
   date: string | null;
   text: string;
 }
@@ -78,6 +79,46 @@ export function extractIncidents(text: string): ParsedIncident[] {
   return incidents;
 }
 
+export interface PdfRecordOptions {
+  url: string;
+  locality: Locality;
+  source: CivicSource;
+  /** Skip incidents dated before this ISO date. */
+  since?: string | undefined;
+}
+
+/** Turn parsed incidents into records. Pure, so it can be tested without a PDF. */
+export function pdfIncidentRecords(incidents: ParsedIncident[], opts: PdfRecordOptions): CivicRecord[] {
+  const { url, locality, source } = opts;
+  const since = opts.since ?? null;
+  const records: CivicRecord[] = [];
+  const seen = new Map<string, number>();
+
+  for (const inc of incidents) {
+    if (since && inc.date && inc.date < since) continue;
+
+    const firstLine = (inc.text.split(/\s{2,}|\n/)[0] ?? "").trim();
+    const title = firstLine.slice(0, 120) || "Police incident";
+
+    records.push({
+      provider: "blotter_pdf",
+      type: "police_blotter",
+      title,
+      summary: inc.text.length > title.length ? inc.text.slice(0, 500) : null,
+      date: inc.date,
+      url,
+      // Content key, scoped to the locality (not the URL): blotters list newest
+      // first, so a positional key shifted on every update and re-inserted old
+      // incidents, and a URL-scoped key would duplicate across a rotating filename.
+      dedupeKey: `blotter_pdf:${locality.name}:${contentKey([inc.date, inc.text], seen)}`,
+      localityName: locality.name,
+      sourceId: source.id,
+      raw: { rawText: inc.text.slice(0, 1000) },
+    });
+  }
+  return records;
+}
+
 export async function ingestPdfBlotter(
   locality: Locality,
   source: CivicSource,
@@ -99,7 +140,10 @@ export async function ingestPdfBlotter(
 
   let pdfText: string;
   try {
-    const res = await ctxFetch(ctx)(url, { headers: { "User-Agent": ctxUserAgent(ctx) } });
+    const res = await ctxFetch(ctx)(url, {
+      headers: { "User-Agent": ctxUserAgent(ctx) },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     if (!res.ok) {
       await ctx.logger?.log(`[${locality.name}] blotter_pdf: HTTP ${res.status} from ${url}`, "warn");
       return { inserted: 0, skipped: 0 };
@@ -122,31 +166,7 @@ export async function ingestPdfBlotter(
     return { inserted: 0, skipped: 0 };
   }
 
-  const since = meta.since ?? null;
-  const records: CivicRecord[] = [];
-
-  for (let i = 0; i < incidents.length; i++) {
-    const inc = incidents[i]!;
-    if (since && inc.date && inc.date < since) continue;
-
-    const firstLine = (inc.text.split(/\s{2,}|\n/)[0] ?? "").trim();
-    const title = firstLine.slice(0, 120) || "Police incident";
-
-    records.push({
-      provider: "blotter_pdf",
-      type: "police_blotter",
-      title,
-      summary: inc.text.length > title.length ? inc.text.slice(0, 500) : null,
-      date: inc.date,
-      url,
-      // Positional key scoped by the PDF's URL (blotter PDFs are typically
-      // dated files, so the URL already identifies the document).
-      dedupeKey: `blotter_pdf:${url}:${i}:${inc.date ?? ""}`,
-      localityName: locality.name,
-      sourceId: source.id,
-      raw: { rawText: inc.text.slice(0, 1000) },
-    });
-  }
+  const records = pdfIncidentRecords(incidents, { url, locality, source, since: meta.since });
 
   const result = await ctx.sink.save(records);
   await ctx.logger?.log(`[${locality.name}] blotter_pdf: +${result.inserted} incidents from ${url}`);

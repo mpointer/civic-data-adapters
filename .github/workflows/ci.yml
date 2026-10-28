@@ -19,6 +19,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx tsc --noEmit
+      # vitest does not type-check, so test files need their own pass (they are
+      # excluded from the build config).
+      - run: npx tsc -p tsconfig.test.json
       - run: npx vitest run
       - run: npm run build
       - name: Verify publishable contents

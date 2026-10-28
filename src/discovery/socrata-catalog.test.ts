@@ -28,7 +28,7 @@ function catalogResult(overrides: {
 }
 
 function makeCtx(results: unknown[]) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: unknown, _init?: RequestInit) => {
     const url = String(input);
     if (!url.startsWith("https://api.us.socrata.com/api/catalog/v1")) {
       throw new Error(`unexpected fetch: ${url}`);
@@ -71,6 +71,7 @@ describe("searchSocrataCatalog", () => {
       dateField: "incident_date",
       caseField: "case_number",
     });
+    if (src.meta.provider !== "socrata") throw new Error("expected a socrata source");
     expect(src.meta.titleFields).toContain("offense_type");
     expect(src.evidence).toContain("abcd-1234");
     expect(src.evidence).toContain("police_blotter");
