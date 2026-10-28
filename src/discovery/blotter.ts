@@ -10,7 +10,7 @@
 // a candidate URL only needs its actual format confirmed.
 import { createRequire } from "node:module";
 import type { Locality, DiscoveryContext, DiscoveredSource } from "../types.js";
-import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { assertPublicHttpUrl, ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
 import { parseBlotterHtml } from "../adapters/blotter-html.js";
 import { extractIncidents } from "../adapters/blotter-pdf.js";
 import { isCrimewatchUrl, fetchCrimewatchIncidents } from "../adapters/blotter-crimewatch.js";
@@ -128,6 +128,18 @@ Find a public incident log / blotter page or PDF for this city's police departme
   }
 
   for (const { url } of candidates) {
+    // The LLM chose this URL from the open web, so treat it as untrusted: never
+    // let it steer a request at localhost, a private range, or cloud metadata.
+    try {
+      assertPublicHttpUrl(url);
+    } catch {
+      await ctx.logger?.log(
+        `[${locality.name}] blotter discovery: skipping non-public candidate ${url}`,
+        "warn"
+      );
+      continue;
+    }
+
     // CrimeWatch (crimewatch.net / *.crimewatchpa.com) is client-side
     // rendered — no server <table> the generic HTML parser can see — so it
     // needs its own validator (calls the site's real feed API) rather than

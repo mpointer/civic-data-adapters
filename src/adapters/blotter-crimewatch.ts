@@ -68,7 +68,20 @@ function extractJsonObject(text: string, startBrace: number): string | null {
   return null;
 }
 
-function extractSettings(html: string): CrimewatchSettings | null {
+// The page's own JSON says where the feed API lives, and the token GET and feed
+// POST go there. A page we scraped must not be able to aim those at an arbitrary
+// host, so accept only the CrimeWatch platform or the host we fetched the page from.
+function apiHostAllowed(sitePath: string, pageUrl: string): boolean {
+  try {
+    const api = new URL(sitePath);
+    if (api.protocol !== "http:" && api.protocol !== "https:") return false;
+    return isCrimewatchUrl(sitePath) || api.hostname.toLowerCase() === new URL(pageUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+function extractSettings(html: string, pageUrl: string): CrimewatchSettings | null {
   const anchor = html.indexOf("jQuery.extend(Drupal.settings,");
   if (anchor === -1) return null;
   const braceStart = html.indexOf("{", anchor);
@@ -90,6 +103,7 @@ function extractSettings(html: string): CrimewatchSettings | null {
   const sitePath = cw?.site_path;
   const basePath = cw?.base_path;
   if (!gid || !apiKey || !sitePath || !basePath) return null;
+  if (!apiHostAllowed(sitePath, pageUrl)) return null;
   return { gid, apiKey, apiBase: `${sitePath}${basePath}` };
 }
 
@@ -221,7 +235,7 @@ export async function fetchCrimewatchIncidents(
     return [];
   }
 
-  const settings = extractSettings(html);
+  const settings = extractSettings(html, url);
   if (!settings) return [];
 
   const token = await getToken(settings.apiBase, options);
