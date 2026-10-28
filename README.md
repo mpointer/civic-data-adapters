@@ -140,7 +140,7 @@ for (const row of storedMinutesRows) {
 
 ## Roadmap
 
-See [ROADMAP.md](./ROADMAP.md): recorded-fixture tests for the blotter parsers, politeness controls beyond robots.txt, and real Granicus/CivicPlus/BoardDocs adapters when someone does the per-platform work.
+Release history, with upgrade notes, is in [CHANGELOG.md](./CHANGELOG.md). Direction is in [ROADMAP.md](./ROADMAP.md): recorded-fixture tests for the blotter parsers, politeness controls beyond robots.txt, and real Granicus/CivicPlus/BoardDocs adapters when someone does the per-platform work.
 
 ## License
 
