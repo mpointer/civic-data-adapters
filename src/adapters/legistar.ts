@@ -10,7 +10,7 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent } from "../internal.js";
+import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
 import {
   type LegistarEventItem,
   parseLegistarEvents,
@@ -35,7 +35,10 @@ async function legistarGet(clientId: string, path: string, ctx: FetchCtx): Promi
     // .legistar.com subdomain serves the human-facing InSite portal and
     // 404s API paths (confirmed against a live client in the first smoke).
     `https://webapi.legistar.com/v1/${encodeURIComponent(clientId)}/${path}`,
-    { headers: { Accept: "application/json", "User-Agent": ctxUserAgent(ctx) } }
+    {
+      headers: { Accept: "application/json", "User-Agent": ctxUserAgent(ctx) },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    }
   );
   if (!res.ok) throw new Error(`Legistar ${clientId} ${path} → ${res.status}`);
   return res.json();

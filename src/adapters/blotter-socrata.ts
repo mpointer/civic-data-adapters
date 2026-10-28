@@ -17,7 +17,7 @@ import type {
   CivicRecord,
   CivicRecordType,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent } from "../internal.js";
+import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
 import { sanitizeCivicDate } from "../dates.js";
 
 const WINDOW_DAYS = 90;
@@ -97,6 +97,7 @@ export async function ingestSocrataRecords(
     try {
       const res = await fetchImpl(`${endpoint}?${params}`, {
         headers: { "User-Agent": ctxUserAgent(ctx), Accept: "application/json" },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!res.ok) {
         await ctx.logger?.log(
