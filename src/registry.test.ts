@@ -74,3 +74,29 @@ describe("runAdapter dispatch", () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining(`${provider}: no public API`), "warn");
   });
 });
+
+describe("sanitizeCivicDate calendar validity", () => {
+  it("rejects dates that do not exist on the calendar instead of rolling them over", () => {
+    expect(sanitizeCivicDate("2026-02-31")).toBeNull();
+    expect(sanitizeCivicDate("2025-02-29")).toBeNull(); // not a leap year
+    expect(sanitizeCivicDate("2026-04-31")).toBeNull();
+    expect(sanitizeCivicDate("2026-13-01")).toBeNull();
+  });
+
+  it("accepts real edge dates", () => {
+    expect(sanitizeCivicDate("2024-02-29")).toBe("2024-02-29"); // leap day
+    expect(sanitizeCivicDate("2026-12-31")).toBe("2026-12-31");
+  });
+
+  it("rejects implausibly old dates (sentinel/zero values from legacy systems)", () => {
+    expect(sanitizeCivicDate("0001-01-01")).toBeNull();
+    expect(sanitizeCivicDate("1899-12-31")).toBeNull();
+    expect(sanitizeCivicDate("1900-01-01")).toBe("1900-01-01");
+  });
+
+  it("requires the strict YYYY-MM-DD prefix", () => {
+    expect(sanitizeCivicDate("2026-3-4")).toBeNull();
+    expect(sanitizeCivicDate("20260304")).toBeNull();
+    expect(sanitizeCivicDate("2026-03-04T09:30:00Z")).toBe("2026-03-04");
+  });
+});
