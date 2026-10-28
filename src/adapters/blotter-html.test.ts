@@ -78,13 +78,16 @@ const locality = { name: "Exampleville" };
 const source = { id: 3 };
 
 describe("ingestHtmlBlotter", () => {
-  it("ingests rows with case-number and positional dedupe keys", async () => {
+  it("ingests rows with case-number and content-based dedupe keys", async () => {
     const { ctx, sink } = setup(BASIC);
     const r = await ingestHtmlBlotter(locality, source, { provider: "blotter_html", url: "https://pd.example.gov/b" }, ctx);
     expect(r).toEqual({ inserted: 3, skipped: 0 });
     const keys = [...sink.records.keys()];
     expect(keys).toContain("blotter_html:Exampleville:26-0001");
-    expect(keys).toContain("blotter_html:https://pd.example.gov/b:1:2026-03-05"); // no case number
+    // no case number: keyed by content (date, offense, location, description), not by position
+    const uncased = keys.filter((k) => !k.includes("26-000"));
+    expect(uncased).toHaveLength(1);
+    expect(uncased[0]).toMatch(/^blotter_html:Exampleville:[0-9a-f]{16}:1$/);
     expect(sink.records.get("blotter_html:Exampleville:26-0001")).toMatchObject({
       type: "police_blotter",
       title: "Theft &amp; Larceny — 100 Main St",

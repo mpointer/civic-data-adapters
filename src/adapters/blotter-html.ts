@@ -13,6 +13,7 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows, FETCH_TIMEOUT_MS } from "../internal.js";
+import { contentKey } from "../dedupe.js";
 
 const MAX_ROWS = 500;
 
@@ -183,17 +184,18 @@ export async function ingestHtmlBlotter(
   }
 
   const records: CivicRecord[] = [];
+  const seen = new Map<string, number>();
 
   for (let i = 0; i < blotterRows.length; i++) {
     const row = blotterRows[i]!;
     const title = [row.type, row.location].filter(Boolean).join(" — ") || "Police incident";
     // Case-numbered rows dedupe on locality + case number so the same case
-    // survives the blotter page URL rotating; rows without one fall back to a
-    // positional URL-scoped key (mirrors the original community-scoped
-    // unique index).
+    // survives the blotter page URL rotating. Rows without one are keyed by
+    // their content: a positional key shifted whenever a new incident was added
+    // at the top and re-inserted every row below it (see ../dedupe.ts).
     const dedupeKey = row.caseNumber
       ? `blotter_html:${locality.name}:${row.caseNumber}`
-      : `blotter_html:${url}:${i}:${row.date ?? ""}`;
+      : `blotter_html:${locality.name}:${contentKey([row.date, row.type, row.location, row.description], seen)}`;
 
     records.push({
       provider: "blotter_html",
