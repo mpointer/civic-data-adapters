@@ -70,7 +70,7 @@ describe("extractRowsFromTable", () => {
 function setup(html: string | Response) {
   const sink = new MemorySink();
   const log = vi.fn();
-  const fetchMock = vi.fn(async () => (typeof html === "string" ? new Response(html) : html));
+  const fetchMock = vi.fn(async (_input: unknown) => (typeof html === "string" ? new Response(html) : html));
   const ctx: AdapterContext = { sink, logger: { log }, fetch: fetchMock as unknown as typeof fetch, skipRobotsCheck: true };
   return { ctx, sink, log, fetchMock };
 }

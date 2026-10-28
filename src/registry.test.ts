@@ -38,7 +38,7 @@ describe("sanitizeCivicDate", () => {
 
 describe("runAdapter dispatch", () => {
   const locality = { name: "Exampleville" };
-  const mk = (fetchMock = vi.fn(async () => new Response("[]"))) => {
+  const mk = (fetchMock = vi.fn(async (_input: unknown) => new Response("[]"))) => {
     const log = vi.fn();
     return {
       log,

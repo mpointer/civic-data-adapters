@@ -6,7 +6,7 @@ const locality: Locality = { name: "Exampleville, PA", state: "PA" };
 
 // verifyLegistarClient hits https://webapi.legistar.com/v1/{clientId}/Bodies?$top=1
 function makeCtx(clientIds: string[], validId: string) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: unknown, _init?: RequestInit) => {
     const url = String(input);
     if (url === `https://webapi.legistar.com/v1/${validId}/Bodies?$top=1`) {
       return { ok: true, json: async () => [{ BodyId: 1 }] } as unknown as Response;
