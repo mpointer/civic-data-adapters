@@ -19,37 +19,54 @@ import { parseCandidateJson, localityCityName } from "./candidates.js";
 const require = createRequire(import.meta.url);
 
 const MAX_CANDIDATES = 4;
-const MIN_CLASSIFY_PROBABILITY = 0.6;
+const DEFAULT_YES = 0.7;
+const DEFAULT_NO = 0.3;
 const SAMPLE_CHARS = 1_500;
 
-/** What a format check found: how many rows parsed, plus text to classify. */
+/** What a format check found: how many rows parsed, plus text to verify. */
 interface CheckResult {
   rows: number;
   sample: string;
 }
 const NONE: CheckResult = { rows: 0, sample: "" };
 
+type Verdict = "accept" | "reject" | "review";
+
 /**
- * Optional ctx.classify gate: do the parsed rows actually look like a police
- * blotter? Parsers alone accept any table with 2+ rows. Fails open on
- * classifier errors so discovery never gets WORSE by opting in.
+ * Optional ctx.verify gate: do the parsed rows actually look like a police
+ * blotter? Parsers alone accept any table with 2+ rows. Fails open on verifier
+ * errors so discovery never gets WORSE by opting in.
  */
 async function looksLikeBlotter(
   sample: string,
   ctx: DiscoveryContext
-): Promise<{ accepted: boolean; note: string }> {
-  if (!ctx.classify) return { accepted: true, note: "" };
-  try {
-    const { label, probability } = await ctx.classify(
-      "Is this text a log of individual police incidents (date, offense, location)?",
-      sample,
-      ["police_blotter", "other"]
+): Promise<{ verdict: Verdict; note: string }> {
+  if (!ctx.verify) return { verdict: "accept", note: "" };
+  let yes = ctx.verifyThresholds?.yes ?? DEFAULT_YES;
+  let no = ctx.verifyThresholds?.no ?? DEFAULT_NO;
+  if (!(no < yes) || no < 0 || yes > 1) {
+    await ctx.logger?.log(
+      `blotter discovery: invalid verifyThresholds (need 0 <= no < yes <= 1), using ${DEFAULT_YES}/${DEFAULT_NO}`,
+      "warn"
     );
-    const accepted = label === "police_blotter" && probability >= MIN_CLASSIFY_PROBABILITY;
-    return { accepted, note: ` (classifier: ${label} ${probability.toFixed(2)})` };
+    yes = DEFAULT_YES;
+    no = DEFAULT_NO;
+  }
+  try {
+    const p = await ctx.verify(
+      "Does the text below list individual police incidents, each with a date, an offense and a location?",
+      sample
+    );
+    if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) {
+      throw new Error(`score ${String(p)} is not a probability in [0, 1]`);
+    }
+    const note = ` (verify: ${p.toFixed(2)})`;
+    if (p >= yes) return { verdict: "accept", note };
+    if (p <= no) return { verdict: "reject", note };
+    return { verdict: "review", note: ` (verify: ${p.toFixed(2)}, needs review)` };
   } catch (err) {
-    await ctx.logger?.log(`blotter discovery: classifier failed, trusting parsers — ${err}`, "warn");
-    return { accepted: true, note: "" };
+    await ctx.logger?.log(`blotter discovery: verify failed, trusting parsers — ${err}`, "warn");
+    return { verdict: "accept", note: "" };
   }
 }
 
@@ -127,6 +144,9 @@ Find a public incident log / blotter page or PDF for this city's police departme
     return [];
   }
 
+  // First candidate verify was unsure about; returned only if none is confident.
+  let fallback: DiscoveredSource | null = null;
+
   for (const { url } of candidates) {
     // The LLM chose this URL from the open web, so treat it as untrusted: never
     // let it steer a request at localhost, a private range, or cloud metadata.
@@ -184,27 +204,39 @@ Find a public incident log / blotter page or PDF for this city's police departme
       const { rows, sample } = await check(url, ctx);
       if (rows > 0) {
         const gate = await looksLikeBlotter(sample, ctx);
-        if (!gate.accepted) {
+        if (gate.verdict === "reject") {
           await ctx.logger?.log(
-            `[${locality.name}] blotter discovery: ${url} parsed as ${provider} but classifier rejected it${gate.note}`,
+            `[${locality.name}] blotter discovery: ${url} parsed as ${provider} but verify rejected it${gate.note}`,
             "warn"
           );
+          continue;
+        }
+        const source: DiscoveredSource = {
+          provider,
+          name: `${cityName} Police Blotter`,
+          url,
+          meta: { provider, url, recordType: "police_blotter" },
+          evidence: `parsed ${rows} ${what} just now${gate.note}`,
+          ...(gate.verdict === "review" ? { needsReview: true } : {}),
+        };
+        if (gate.verdict === "review") {
+          fallback ??= source;
           continue;
         }
         await ctx.logger?.log(
           `[${locality.name}] blotter discovery: verified ${url} as ${provider} (${rows} rows)`
         );
-        return [
-          {
-            provider,
-            name: `${cityName} Police Blotter`,
-            url,
-            meta: { provider, url, recordType: "police_blotter" },
-            evidence: `parsed ${rows} ${what} just now${gate.note}`,
-          },
-        ];
+        return [source];
       }
     }
+  }
+
+  if (fallback) {
+    await ctx.logger?.log(
+      `[${locality.name}] blotter discovery: no confident candidate; returning ${fallback.url} flagged for review`,
+      "warn"
+    );
+    return [fallback];
   }
 
   await ctx.logger?.log(

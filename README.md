@@ -94,7 +94,27 @@ const sources = await discover(
 // meta drops straight into runAdapter — after a human approves it.
 ```
 
-Discovery also accepts an optional `classify` hook, a closed-set classifier `(task, text, labels) => Promise<{ label, probability }>`. When provided, a blotter candidate that the parsers accept must also be classified as a police blotter (probability ≥ 0.6), which catches non-blotter tables that happen to parse as rows. It is an extra gate only: absent, behavior is unchanged; if it throws, discovery fails open.
+Discovery also accepts an optional `verify` hook, a yes/no check `(question, text) => Promise<number>` returning the probability of yes. When provided, a blotter candidate that the parsers accept is also asked "does this text list individual police incidents?" on the parsed rows. A score ≥ 0.7 accepts; ≤ 0.3 rejects; in between, the candidate is returned only if no confident one turns up, with `needsReview: true` on the result. Override the cut-offs with `verifyThresholds: { yes, no }`. It is an extra gate only: absent, behavior is unchanged; if it throws or returns something outside 0–1, discovery fails open (the parsers stand) and logs a warning.
+
+`verify` maps directly onto a calibrated yes/no endpoint such as [Jev](https://docs.typesafe.ai)'s `noul` question type. The wiring below follows the documented request shape but has **not been run against the live API** (no key was available when it was written), so treat it as a starting point:
+
+```ts
+const verify: VerifyFn = async (question, text) => {
+  // Jev rate-limits with 429/529: retry with exponential backoff in production.
+  const res = await fetch("https://api.typesafe.ai/v1/systemone", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.TYPESAFE_API_KEY}` },
+    body: JSON.stringify({
+      state: text,
+      model: "jev-latest",
+      questions: { q: { type: "noul", instructions: question } },
+    }),
+  });
+  if (!res.ok) throw new Error(`Jev HTTP ${res.status}`); // discovery fails open
+  const body = (await res.json()) as { answers?: { q?: { noul?: number } } };
+  return body.answers?.q?.noul as number; // out-of-range or missing → fails open
+};
+```
 
 Individual entry points also exist: `discoverBlotter`, `discoverMeetingPortal`, and `searchSocrataCatalog` (the catalog one needs no LLM at all).
 
