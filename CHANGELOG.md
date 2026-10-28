@@ -5,10 +5,47 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-28
+
+### Upgrading
+- **Breaking: `DiscoveryContext.classify` is replaced by `verify`.** `classify`, `ClassifyFn` and
+  `ClassifyResult` are removed. `verify(question, text)` returns the probability (0-1) that the answer
+  is yes. A blotter candidate scoring >= 0.7 is accepted, <= 0.3 is rejected, and anything between is
+  returned only if no confident candidate turns up, with `needsReview: true` on the `DiscoveredSource`.
+  Override the cut-offs with `verifyThresholds: { yes, no }`. A throw or an out-of-range score fails
+  open. Code that auto-ingests discovery results should skip or queue entries where `needsReview` is
+  true. See the README for a Jev wiring snippet (documented request shape, not yet run against the
+  live API).
+- **Dedupe keys changed for rows that have no natural id**, so stored rows will insert once more unless
+  you migrate: `blotter_html` rows without a case number, and every `blotter_pdf` row. They were keyed
+  by position, so one new incident shifted the key of every row below it and re-inserted them all. They
+  are now keyed by content (`contentKey` in `src/dedupe.ts`). `blotter_html` rows that have a case
+  number keep their keys.
+
 ### Added
+- `DiscoveryContext.verify`, `verifyThresholds` and `DiscoveredSource.needsReview` (see above).
+- Test files are now type-checked (`npm run typecheck` covers `tsconfig.test.json`, and CI runs it).
+
+### Fixed
+- Every outbound fetch now has a 30-second deadline; some had none and could hang a run indefinitely.
+- Discovery skips candidate URLs that are not public http(s) (localhost, private ranges, cloud
+  metadata) instead of fetching them. DNS rebinding and redirects are not covered.
+- `robots.txt` handling now follows RFC 9309: `*` and `$` wildcards, longest-match precedence with
+  Allow winning ties, a 5xx response treated as disallow-all (cached 5 minutes), a 4xx as allow, and a
+  512 KiB cap. A network error still fails open.
+- `blotter_html` no longer turns ISO dates into garbage (`2026-03-06` was read as `2006-26-03`).
+- Date validation rejects impossible dates (round-trip check), non-`YYYY-MM-DD` prefixes and years
+  before 1900.
+- CrimeWatch API calls are restricted to crimewatch.net, `*.crimewatchpa.com`, or the page's own host.
+  A custom-domain deployment whose API host differs from its page host will be rejected; report one
+  if you hit this.
+
+### Development
 - Blotter fixture capture and replay harness (`scripts/capture-fixtures.mjs`, `src/fixtures.test.ts`,
-  `fixtures/README.md`). Development tooling only; it is not part of the published package.
-  No real page has been captured yet, so the blotter parser tests are still synthetic.
+  `fixtures/README.md`). Not part of the published package. No real page has been captured yet, so the
+  blotter parser tests are still synthetic.
+- The release workflow refuses to publish a tag whose commit is not an ancestor of `main`.
+- Smaller npm tarball; dev-dependency vulnerabilities cleared (`npm audit` reports none).
 
 ## [0.4.1] - 2026-10-20
 
