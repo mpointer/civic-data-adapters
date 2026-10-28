@@ -216,19 +216,12 @@ export interface AdapterResult {
   skipped: number;
 }
 
-/** Result of a closed-set classification: one of the offered labels. */
-export interface ClassifyResult {
-  label: string;
-  /** Calibrated confidence in `label`, 0–1. */
-  probability: number;
-}
-
-/** Pick exactly one of `labels` for `text`, answering the question in `task`. */
-export type ClassifyFn = (
-  task: string,
-  text: string,
-  labels: readonly string[]
-) => Promise<ClassifyResult>;
+/**
+ * Answer a yes/no `question` about `text` with the probability (0–1) that the
+ * answer is yes. Maps directly onto a calibrated yes/no endpoint such as
+ * Jev's "noul" question type.
+ */
+export type VerifyFn = (question: string, text: string) => Promise<number>;
 
 /**
  * Context for discovery functions (v0.2). Discovery PROPOSES sources via an
@@ -244,15 +237,18 @@ export interface DiscoveryContext {
    */
   generate: (systemPrompt: string, prompt: string) => Promise<string>;
   /**
-   * Optional closed-set classifier used as an EXTRA gate on candidates that
-   * already passed the deterministic parsers (e.g. rows parsed from a table
-   * that turns out to be a staff directory, not a blotter). Back it with
-   * anything that returns a label plus a probability — a small calibrated
-   * classifier is a good fit, a general LLM works too. When absent, behavior
-   * is unchanged. When it throws, discovery fails open (parser verification
-   * stands) and logs a warning.
+   * Optional yes/no verifier used as an EXTRA gate on candidates that already
+   * passed the deterministic parsers (e.g. rows parsed from a table that turns
+   * out to be a staff directory, not a blotter). Returns the probability of
+   * yes. p >= `verifyThresholds.yes` (default 0.7) accepts; p <= `.no`
+   * (default 0.3) rejects; in between the candidate is returned only if no
+   * confident one is found, flagged `needsReview`. When absent, behavior is
+   * unchanged. When it throws or returns a score outside 0–1, discovery fails
+   * open (parser verification stands) and logs a warning.
    */
-  classify?: ClassifyFn;
+  verify?: VerifyFn;
+  /** Override the accept/reject cut-offs for `verify`. Requires no < yes. */
+  verifyThresholds?: { yes?: number; no?: number };
   fetch?: typeof fetch;
   userAgent?: string;
   logger?: CivicLogger;
@@ -271,6 +267,8 @@ export interface DiscoveredSource {
   /** How verification confirmed it, e.g. "parsed 12 blotter rows just now"
    *  or "Legistar API answered for clientId 'seattle'". */
   evidence: string;
+  /** True when `verify` was uncertain: a human should confirm before ingest. */
+  needsReview?: boolean;
 }
 
 export const consoleLogger: CivicLogger = {
