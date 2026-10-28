@@ -140,3 +140,44 @@ describe("ingestHtmlMinutes", () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining("no URL"), "warn");
   });
 });
+
+describe("ingestHtmlMinutes: truncation is never silent", () => {
+  const pageOfLength = (chars: number) => `<html><body>${"x".repeat(chars)}</body></html>`;
+  const noItems = async () => "[]";
+
+  it("warns when the page text is cut to the 8000-character budget", async () => {
+    const { ctx, log } = setup(noItems, pageOfLength(60_000));
+    await ingestHtmlMinutes(locality, source, meta, ctx);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/truncated from 60000 to 8000 chars/), "warn");
+  });
+
+  it("does not warn at or under the budget", async () => {
+    for (const chars of [100, 8_000]) {
+      const { ctx, log } = setup(noItems, pageOfLength(chars));
+      await ingestHtmlMinutes(locality, source, meta, ctx);
+      expect(log).not.toHaveBeenCalledWith(expect.stringMatching(/truncated/), "warn");
+    }
+  });
+
+  it("warns at one character over the budget", async () => {
+    const { ctx, log } = setup(noItems, pageOfLength(8_001));
+    await ingestHtmlMinutes(locality, source, meta, ctx);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/truncated from 8001 to 8000/), "warn");
+  });
+
+  it("warns when more than 50 items come back and only 50 are kept", async () => {
+    const many = JSON.stringify(Array.from({ length: 60 }, (_, i) => ({ title: `Item number ${i}` })));
+    const { ctx, log, sink } = setup(async () => many);
+    const result = await ingestHtmlMinutes(locality, source, meta, ctx);
+    expect(result.inserted).toBe(50);
+    expect(sink.records.size).toBe(50);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/kept 50 of 60/), "warn");
+  });
+
+  it("does not warn about item count at or under 50", async () => {
+    const fifty = JSON.stringify(Array.from({ length: 50 }, (_, i) => ({ title: `Item number ${i}` })));
+    const { ctx, log } = setup(async () => fifty);
+    await ingestHtmlMinutes(locality, source, meta, ctx);
+    expect(log).not.toHaveBeenCalledWith(expect.stringMatching(/kept 50 of/), "warn");
+  });
+});

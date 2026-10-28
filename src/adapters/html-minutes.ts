@@ -55,10 +55,24 @@ result = the outcome (e.g. "Approved 5-2", "Tabled", "Passed unanimously") or nu
 date = ISO date (YYYY-MM-DD) if stated, else null.
 Return [] if no actionable items are found. Never invent details.`;
 
+// What the model is given, and how many items we keep. Both silently dropped
+// the rest before; they still do, but now say so.
+const MAX_SOURCE_CHARS = 8_000;
+const MAX_ITEMS = 50;
+
+interface FetchedText {
+  text: string;
+  isPdf: boolean;
+  /** Text was cut to MAX_SOURCE_CHARS. For PDFs this is "reached the cap". */
+  truncated: boolean;
+  /** Length before truncation, when known (HTML only). */
+  originalChars?: number;
+}
+
 async function fetchText(
   url: string,
   ctx: AdapterContext
-): Promise<{ text: string; isPdf: boolean } | null> {
+): Promise<FetchedText | null> {
   if (!(await robotsAllows(url, ctx))) return null;
   try {
     const res = await ctxFetch(ctx)(url, {
@@ -70,17 +84,21 @@ async function fetchText(
     const isPdf = ct.includes("pdf") || url.toLowerCase().endsWith(".pdf");
     if (isPdf) {
       const text = await extractPdfText(url, ctx);
-      return text ? { text, isPdf: true } : null;
+      return text ? { text, isPdf: true, truncated: text.length >= MAX_SOURCE_CHARS } : null;
     }
     const html = await res.text();
-    const text = html
+    const full = html
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
       .replace(/<style[\s\S]*?<\/style>/gi, " ")
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 8_000);
-    return { text, isPdf: false };
+      .trim();
+    return {
+      text: full.slice(0, MAX_SOURCE_CHARS),
+      isPdf: false,
+      truncated: full.length > MAX_SOURCE_CHARS,
+      originalChars: full.length,
+    };
   } catch {
     return null;
   }
@@ -121,6 +139,15 @@ export async function ingestHtmlMinutes(
     return { inserted: 0, skipped: 0 };
   }
 
+  if (fetched.truncated) {
+    await ctx.logger?.log(
+      fetched.isPdf
+        ? `[${locality.name}] html_minutes ${url}: document text may be truncated at ${MAX_SOURCE_CHARS} chars; items past the cut are not extracted`
+        : `[${locality.name}] html_minutes ${url}: page text truncated from ${fetched.originalChars} to ${MAX_SOURCE_CHARS} chars; items past the cut are not extracted`,
+      "warn"
+    );
+  }
+
   let raw: string;
   try {
     raw = await ctx.summarize(PARSE_SYSTEM, fetched.text);
@@ -141,7 +168,13 @@ export async function ingestHtmlMinutes(
   }
 
   const records: CivicRecord[] = [];
-  for (const item of parsed.value.items.slice(0, 50)) {
+  if (parsed.value.items.length > MAX_ITEMS) {
+    await ctx.logger?.log(
+      `[${locality.name}] html_minutes ${url}: kept ${MAX_ITEMS} of ${parsed.value.items.length} items`,
+      "warn"
+    );
+  }
+  for (const item of parsed.value.items.slice(0, MAX_ITEMS)) {
     const key = minutesDedupeKey(source.id, url, item.title);
     records.push({
       provider: "html_minutes",
