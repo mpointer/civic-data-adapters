@@ -15,6 +15,15 @@ jobs:
       id-token: write # npm provenance attestation
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history, so we can tell whether the tag is on main
+      - name: Require the tagged commit to be on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME ($GITHUB_SHA) is not on main. Release tags must point at a commit that has been merged to main."
+            exit 1
+          fi
       - name: Verify tag matches package.json version
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
@@ -30,8 +39,9 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npx tsc --noEmit
+      - run: npx tsc -p tsconfig.test.json
       - run: npx vitest run
       - run: npm run build
       - name: Update npm (OIDC trusted publishing needs >= 11.5)
-        run: npm install -g npm@latest
+        run: npm install -g npm@12
       - run: npm publish --provenance --access public
