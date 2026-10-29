@@ -15,6 +15,7 @@ import { parseBlotterHtml } from "../adapters/blotter-html.js";
 import { extractIncidents } from "../adapters/blotter-pdf.js";
 import { isCrimewatchUrl, fetchCrimewatchIncidents } from "../adapters/blotter-crimewatch.js";
 import { parseCandidateJson, localityCityName } from "./candidates.js";
+import { readBytes, readText, MAX_HTML_BYTES, MAX_PDF_BYTES } from "../body.js";
 
 const require = createRequire(import.meta.url);
 
@@ -78,7 +79,7 @@ async function tryHtml(url: string, ctx: DiscoveryContext): Promise<CheckResult>
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return NONE;
-    const rows = parseBlotterHtml(await res.text());
+    const rows = parseBlotterHtml(await readText(res, MAX_HTML_BYTES));
     const sample = rows
       .slice(0, 8)
       .map((r) => [r.date, r.type, r.location, r.description].filter(Boolean).join(" | "))
@@ -98,7 +99,7 @@ async function tryPdf(url: string, ctx: DiscoveryContext): Promise<CheckResult> 
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) return NONE;
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = Buffer.from(await readBytes(res, MAX_PDF_BYTES));
     // Lazy require keeps pdf-parse out of bundler static analysis and off the
     // startup path (same pattern as the blotter_pdf adapter).
     const pdfParse = require("pdf-parse") as (

@@ -30,6 +30,17 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
   counted in `problems`. This guards against inventions, not paraphrase errors.
 - `html_minutes` failures say why (`HTTP 404`, fetch error, no text in the PDF), and a robots.txt refusal
   is now `skipped` rather than "fetch failed".
+- **Response bodies are capped**: 5 MiB for HTML, 25 MiB for JSON and PDFs. An oversized body fails the run
+  (`failed`, "response body exceeds N bytes") after reading only a little past the cap; a `Content-Length`
+  over the cap is refused before reading. Before, `res.text()` / `res.json()` buffered whatever the server
+  sent. A legitimate source bigger than that needs a code change; there is no option for it yet.
+- **HTML scanning is linear.** The table parser and the `html_minutes` tag stripper were regexes that
+  rescanned to the end of the document at every unclosed tag: a 200 KB page of unclosed nested tables
+  blocked the event loop for 448 ms and the cost grew with the square of the size. They are now a single
+  pass (`src/html.ts`); 800 KB of the same input takes about 100 ms. On large well-formed pages the new
+  scanner is a little slower than the regex was (about 3 MB in 150-200 ms). It also now infers omitted
+  `</td>`, `</tr>` and `</table>`, keeps nested tables' cells out of their parent, and ignores tags in
+  comments.
 - Runs that lost data now say so instead of looking like a clean run: `blotter_html` tables longer than
   500 rows, `blotter_pdf` documents longer than 20 pages, `socrata` rows that were not objects,
   CrimeWatch feeds that stopped answering or were cut at the page cap, and Legistar meetings whose
