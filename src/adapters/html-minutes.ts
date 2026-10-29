@@ -14,6 +14,7 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { createRun } from "../outcome.js";
 import { extractPdfText } from "./legistar.js";
 
 /**
@@ -110,41 +111,25 @@ export async function ingestHtmlMinutes(
   meta: MetaFor<"html_minutes">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
-  if (!ctx.summarize) {
-    ctx.logger?.log(
-      "html_minutes requires ctx.summarize (an LLM callback) — skipping",
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
-  }
+  const run = createRun(ctx, `[${locality.name}] html_minutes:`);
+  if (!ctx.summarize) return run.fail("requires ctx.summarize (an LLM callback) — skipping");
 
   const url = meta.url ?? source.url;
-  if (!url) {
-    await ctx.logger?.log(`[${locality.name}] html_minutes source ${source.id}: no URL`, "warn");
-    return { inserted: 0, skipped: 0 };
-  }
+  if (!url) return run.fail(`source ${source.id}: no URL`);
 
   const fetched = await fetchText(url, ctx);
-  if (!fetched) {
-    await ctx.logger?.log(`[${locality.name}] html_minutes ${url}: fetch failed`, "warn");
-    return { inserted: 0, skipped: 0 };
-  }
+  if (!fetched) return run.fail(`${url}: fetch failed`);
 
   // Image-only PDF detection
   if (fetched.isPdf && fetched.text.replace(/\s+/g, "").length < 100) {
-    await ctx.logger?.log(
-      `[${locality.name}] html_minutes ${url}: image-only PDF — no text layer, skipping`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
+    return run.fail(`${url}: image-only PDF — no text layer, skipping`);
   }
 
   if (fetched.truncated) {
-    await ctx.logger?.log(
+    await run.problem(
       fetched.isPdf
-        ? `[${locality.name}] html_minutes ${url}: document text may be truncated at ${MAX_SOURCE_CHARS} chars; items past the cut are not extracted`
-        : `[${locality.name}] html_minutes ${url}: page text truncated from ${fetched.originalChars} to ${MAX_SOURCE_CHARS} chars; items past the cut are not extracted`,
-      "warn"
+        ? `${url}: document text may be truncated at ${MAX_SOURCE_CHARS} chars; items past the cut are not extracted`
+        : `${url}: page text truncated from ${fetched.originalChars} to ${MAX_SOURCE_CHARS} chars; items past the cut are not extracted`
     );
   }
 
@@ -152,27 +137,17 @@ export async function ingestHtmlMinutes(
   try {
     raw = await ctx.summarize(PARSE_SYSTEM, fetched.text);
   } catch (err) {
-    await ctx.logger?.log(`[${locality.name}] html_minutes ${url}: summarize failed — ${err}`, "warn");
-    return { inserted: 0, skipped: 0 };
+    return run.fail(`${url}: summarize failed — ${err}`);
   }
   const parsed = parseMinutesItems(raw);
-  if (!parsed.ok) {
-    await ctx.logger?.log(`[${locality.name}] html_minutes ${url}: parse failed — ${parsed.error}`, "warn");
-    return { inserted: 0, skipped: 0 };
-  }
+  if (!parsed.ok) return run.fail(`${url}: parse failed — ${parsed.error}`);
   if (parsed.value.dropped > 0) {
-    await ctx.logger?.log(
-      `[${locality.name}] html_minutes ${url}: dropped ${parsed.value.dropped} malformed item(s)`,
-      "warn"
-    );
+    await run.problem(`${url}: dropped ${parsed.value.dropped} malformed item(s)`);
   }
 
   const records: CivicRecord[] = [];
   if (parsed.value.items.length > MAX_ITEMS) {
-    await ctx.logger?.log(
-      `[${locality.name}] html_minutes ${url}: kept ${MAX_ITEMS} of ${parsed.value.items.length} items`,
-      "warn"
-    );
+    await run.problem(`${url}: kept ${MAX_ITEMS} of ${parsed.value.items.length} items`);
   }
   for (const item of parsed.value.items.slice(0, MAX_ITEMS)) {
     const key = minutesDedupeKey(source.id, url, item.title);
@@ -189,5 +164,5 @@ export async function ingestHtmlMinutes(
     });
   }
 
-  return ctx.sink.save(records);
+  return run.done(await ctx.sink.save(records), records.length);
 }

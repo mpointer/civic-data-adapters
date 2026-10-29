@@ -16,6 +16,7 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { createRun } from "../outcome.js";
 import { parsePropublicaPage, type PropublicaPage } from "../responses.js";
 
 const BASE_URL = "https://projects.propublica.org/nonprofits/api/v2/search.json";
@@ -82,21 +83,9 @@ export async function ingestNonprofitExplorer(
   meta: MetaFor<"nonprofit_explorer">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
-  if (!locality.state) {
-    await ctx.logger?.log(
-      `[${locality.name}] nonprofit_explorer: locality.state is not set — skipping`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
-  }
-
-  if (!(await robotsAllows(BASE_URL, ctx))) {
-    await ctx.logger?.log(
-      `[${locality.name}] nonprofit_explorer: disallowed by robots.txt — skipping`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
-  }
+  const run = createRun(ctx, `[${locality.name}] nonprofit_explorer:`);
+  if (!locality.state) return run.fail("locality.state is not set — skipping");
+  if (!(await robotsAllows(BASE_URL, ctx))) return run.skip("disallowed by robots.txt — skipping");
 
   const nteeFilter = meta.nteeFilter
     ? new Set(meta.nteeFilter.toUpperCase().split(",").map((s) => s.trim()))
@@ -120,10 +109,7 @@ export async function ingestNonprofitExplorer(
       break;
     }
     if (Date.now() - startedAt > TIME_BUDGET_MS) {
-      await ctx.logger?.log(
-        `[${locality.name}] nonprofit_explorer: time budget reached at page ${page}/${totalPages} — stopping early`,
-        "warn"
-      );
+      await run.problem(`time budget reached at page ${page}/${totalPages} — stopping early`);
       break;
     }
     // state.id doesn't actually filter (see file-header comment) — kept
@@ -142,26 +128,20 @@ export async function ingestNonprofitExplorer(
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!res.ok) {
-        await ctx.logger?.log(`[${locality.name}] nonprofit_explorer: HTTP ${res.status}`, "warn");
+        await run.problem(`HTTP ${res.status} on page ${page}`);
         break;
       }
       data = parsePropublicaPage(await res.json());
     } catch (err) {
-      await ctx.logger?.log(`[${locality.name}] nonprofit_explorer: fetch error — ${err}`, "warn");
+      await run.problem(`fetch error on page ${page} — ${err}`);
       break;
     }
     if (!data) {
-      await ctx.logger?.log(
-        `[${locality.name}] nonprofit_explorer: unexpected response shape on page ${page} — stopping`,
-        "warn"
-      );
+      await run.problem(`unexpected response shape on page ${page} — stopping`);
       break;
     }
     if (data.dropped > 0) {
-      await ctx.logger?.log(
-        `[${locality.name}] nonprofit_explorer: skipped ${data.dropped} malformed org(s) on page ${page}`,
-        "warn"
-      );
+      await run.problem(`skipped ${data.dropped} malformed org(s) on page ${page}`);
     }
 
     // A response without a usable num_pages keeps the count we already had.
@@ -216,14 +196,11 @@ export async function ingestNonprofitExplorer(
   }
 
   if (hitCap) {
-    await ctx.logger?.log(
-      `[${locality.name}] nonprofit_explorer: hit page cap (${MAX_PAGES}/${totalPages}) — results may be incomplete`,
-      "warn"
-    );
+    await run.problem(`hit page cap (${MAX_PAGES}/${totalPages}) — results may be incomplete`);
   }
   const result = await ctx.sink.save(records);
   await ctx.logger?.log(
     `[${locality.name}] nonprofit_explorer: +${result.inserted} records, ${result.skipped} skipped`
   );
-  return result;
+  return run.done(result, records.length);
 }

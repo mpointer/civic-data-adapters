@@ -44,8 +44,19 @@ const result = await runAdapter(
   } satisfies CivicAdapterMeta,
   { sink },
 );
-// result: { inserted, skipped }
+// result: { inserted, skipped, status, problems }
 ```
+
+`status` says what kind of run this was; do not infer it from the counts, because `inserted: 0` means different things:
+
+| `status` | Meaning |
+| --- | --- |
+| `ok` | Ran to the end. Zero records is still `ok`: a quiet day is not a failure. |
+| `partial` | Saved some data but lost some: a page cap or time budget was hit, a later page failed, rows were malformed, or text was truncated. |
+| `failed` | Could not get data: HTTP or network error, wrong response shape, nothing parseable, missing config, unknown provider. Nothing was saved. |
+| `skipped` | Deliberately did not run: robots.txt refused, or the provider is a stub (`granicus`, `civicplus`, `boarddocs`). |
+
+`problems` lists what went wrong in plain text (also logged as warnings). Adapters do not throw for source-side trouble; only an error from your own `sink.save` propagates. Alert on `failed`, and decide per provider whether `partial` needs a retry.
 
 `CivicAdapterMeta` is a union discriminated on `provider`, so each provider's required fields are enforced at compile time (`socrata` needs `url` and `resourceId`; `legistar` needs `clientId`) and one provider's fields don't type-check on another. Metadata you read back from a database is untyped JSON, so validate it first:
 

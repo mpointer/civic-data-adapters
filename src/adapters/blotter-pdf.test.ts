@@ -44,7 +44,7 @@ describe("ingestPdfBlotter", () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining("no url"), "warn");
 
     const http500 = { ...base, fetch: (async () => new Response("", { status: 500 })) as unknown as typeof fetch };
-    expect(await ingestPdfBlotter({ name: "X" }, { id: 1 }, { provider: "blotter_pdf", url: "https://p.example.gov/b.pdf" }, http500)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestPdfBlotter({ name: "X" }, { id: 1 }, { provider: "blotter_pdf", url: "https://p.example.gov/b.pdf" }, http500)).toMatchObject({ inserted: 0, skipped: 0 });
 
     const denied: AdapterContext = {
       sink,
@@ -52,7 +52,7 @@ describe("ingestPdfBlotter", () => {
       fetch: (async (u: unknown) =>
         String(u).endsWith("/robots.txt") ? new Response("User-agent: *\nDisallow: /") : new Response("")) as unknown as typeof fetch,
     };
-    expect(await ingestPdfBlotter({ name: "X" }, { id: 1 }, { provider: "blotter_pdf", url: "https://pdf-denied.example.gov/b.pdf" }, denied)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestPdfBlotter({ name: "X" }, { id: 1 }, { provider: "blotter_pdf", url: "https://pdf-denied.example.gov/b.pdf" }, denied)).toMatchObject({ inserted: 0, skipped: 0 });
   });
 
   it("returns zeros (not a throw) when the bytes aren't a parseable PDF", async () => {
@@ -61,6 +61,6 @@ describe("ingestPdfBlotter", () => {
       skipRobotsCheck: true,
       fetch: (async () => new Response("this is not a pdf")) as unknown as typeof fetch,
     };
-    expect(await ingestPdfBlotter({ name: "X" }, { id: 1 }, { provider: "blotter_pdf", url: "https://p.example.gov/b.pdf" }, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestPdfBlotter({ name: "X" }, { id: 1 }, { provider: "blotter_pdf", url: "https://p.example.gov/b.pdf" }, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
   });
 });

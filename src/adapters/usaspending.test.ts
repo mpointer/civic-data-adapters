@@ -119,7 +119,7 @@ describe("ingestUSASpending malformed responses", () => {
 
   it("does not throw when results is missing; warns and stops", async () => {
     const { ctx, log } = makeCtx(okJson({ detail: "Something went wrong" }));
-    await expect(ingestUSASpending(locality, source, meta, ctx)).resolves.toEqual({ inserted: 0, skipped: 0 });
+    await expect(ingestUSASpending(locality, source, meta, ctx)).resolves.toMatchObject({ inserted: 0, skipped: 0 });
     expect(log).toHaveBeenCalledWith(expect.stringContaining("unexpected response shape"), "warn");
   });
 

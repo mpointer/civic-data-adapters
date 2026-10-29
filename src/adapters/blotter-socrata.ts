@@ -18,6 +18,7 @@ import type {
   CivicRecordType,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
+import { createRun } from "../outcome.js";
 import { sanitizeCivicDate } from "../dates.js";
 
 const WINDOW_DAYS = 90;
@@ -51,13 +52,8 @@ export async function ingestSocrataRecords(
   meta: MetaFor<"socrata">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
-  if (!meta.url || !meta.resourceId) {
-    await ctx.logger?.log(
-      `[${locality.name}] socrata: missing url or resourceId in source metadata`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
-  }
+  const run = createRun(ctx, `[${locality.name}] socrata:`);
+  if (!meta.url || !meta.resourceId) return run.fail("missing url or resourceId in source metadata");
 
   const recordType: CivicRecordType = meta.recordType ?? "police_blotter";
   const since = meta.since ?? isoSince(WINDOW_DAYS);
@@ -76,12 +72,12 @@ export async function ingestSocrataRecords(
   // with meta.maxPages for deliberate bulk pulls.
   const maxPages = meta.maxPages ?? 20;
   let pages = 0;
+  let malformed = 0;
 
   while (true) {
     if (pages >= maxPages) {
-      await ctx.logger?.log(
-        `[${locality.name}] socrata: hit page cap (${maxPages} × ${PAGE_LIMIT}) — results may be incomplete; raise meta.maxPages for bulk pulls`,
-        "warn",
+      await run.problem(
+        `hit page cap (${maxPages} × ${PAGE_LIMIT}) — results may be incomplete; raise meta.maxPages for bulk pulls`
       );
       break;
     }
@@ -100,23 +96,17 @@ export async function ingestSocrataRecords(
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!res.ok) {
-        await ctx.logger?.log(
-          `[${locality.name}] socrata: HTTP ${res.status} from ${endpoint}`,
-          "warn"
-        );
+        await run.problem(`HTTP ${res.status} from ${endpoint}${pages > 1 ? ` (page ${pages})` : ""}`);
         break;
       }
       const body: unknown = await res.json();
       if (!Array.isArray(body)) {
-        await ctx.logger?.log(
-          `[${locality.name}] socrata: unexpected response shape from ${endpoint} — stopping`,
-          "warn"
-        );
+        await run.problem(`unexpected response shape from ${endpoint} — stopping`);
         break;
       }
       rows = body as SocrataRow[];
     } catch (err) {
-      await ctx.logger?.log(`[${locality.name}] socrata: fetch error — ${err}`, "warn");
+      await run.problem(`fetch error — ${err}`);
       break;
     }
 
@@ -124,7 +114,10 @@ export async function ingestSocrataRecords(
 
     for (const row of rows) {
       // Skip (not filter) so positional fallback ids (offset + index) stay stable.
-      if (typeof row !== "object" || row === null) continue;
+      if (typeof row !== "object" || row === null) {
+        malformed++;
+        continue;
+      }
       const rawDate = pickField(row, [
         dateField,
         "date",
@@ -198,11 +191,12 @@ export async function ingestSocrataRecords(
     offset += PAGE_LIMIT;
   }
 
+  if (malformed > 0) await run.problem(`skipped ${malformed} malformed row(s)`);
   const result = await ctx.sink.save(records);
   await ctx.logger?.log(
     `[${locality.name}] socrata ${recordType}: +${result.inserted} records, ${result.skipped} skipped`
   );
-  return result;
+  return run.done(result, records.length);
 }
 
 // Backwards-compatible alias

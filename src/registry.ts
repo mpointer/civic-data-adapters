@@ -16,15 +16,14 @@ import { ingestPdfBlotter } from "./adapters/blotter-pdf.js";
 import { ingestCrimewatchBlotter } from "./adapters/blotter-crimewatch.js";
 import { ingestUSASpending } from "./adapters/usaspending.js";
 import { ingestNonprofitExplorer } from "./adapters/nonprofit.js";
+import { createRun } from "./outcome.js";
 
 export { sanitizeCivicDate } from "./dates.js";
 
 async function stub(provider: string, locality: Locality, ctx: AdapterContext): Promise<AdapterResult> {
-  await ctx.logger?.log(
-    `[${locality.name}] ${provider}: no public API available — manual setup required; skipping`,
-    "warn"
+  return createRun(ctx, `[${locality.name}] ${provider}:`).skip(
+    "no public API available — manual setup required; skipping"
   );
-  return { inserted: 0, skipped: 0 };
 }
 
 export async function runAdapter(
@@ -68,11 +67,9 @@ export async function runAdapter(
     default: {
       // Unreachable by type; reachable at runtime with bad stored JSON.
       const unknown = (resolved as { provider: unknown }).provider;
-      await ctx.logger?.log(
-        `[${locality.name}] source ${source.id}: unknown provider '${String(unknown)}' — skipping`,
-        "warn"
+      return createRun(ctx, `[${locality.name}] source ${source.id}:`).fail(
+        `unknown provider '${String(unknown)}' — skipping`
       );
-      return { inserted: 0, skipped: 0 };
     }
   }
 }

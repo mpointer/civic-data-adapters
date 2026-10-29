@@ -54,23 +54,23 @@ describe("blotter_html: rows without case numbers survive the page being updated
 
   it("inserts only the new incident when one is added at the top (the newest-first case)", async () => {
     const { sink, run } = make();
-    expect(await run(day1)).toEqual({ inserted: 3, skipped: 0 });
+    expect(await run(day1)).toMatchObject({ inserted: 3, skipped: 0 });
     const day2 = await run([["03/05/2026", "Burglary", "9 Elm St"], ...day1]);
-    expect(day2).toEqual({ inserted: 1, skipped: 3 });
+    expect(day2).toMatchObject({ inserted: 1, skipped: 3 });
     expect(sink.records.size).toBe(4);
   });
 
   it("is unaffected by the order of rows", async () => {
     const { run } = make();
     await run(day1);
-    expect(await run([...day1].reverse())).toEqual({ inserted: 0, skipped: 3 });
+    expect(await run([...day1].reverse())).toMatchObject({ inserted: 0, skipped: 3 });
   });
 
   it("keeps identical rows on one page as separate records, stably across runs", async () => {
     const { sink, run } = make();
     const dup = [day1[0]!, day1[0]!];
-    expect(await run(dup)).toEqual({ inserted: 2, skipped: 0 });
-    expect(await run(dup)).toEqual({ inserted: 0, skipped: 2 });
+    expect(await run(dup)).toMatchObject({ inserted: 2, skipped: 0 });
+    expect(await run(dup)).toMatchObject({ inserted: 0, skipped: 2 });
     expect(sink.records.size).toBe(2);
   });
 

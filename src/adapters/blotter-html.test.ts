@@ -81,7 +81,7 @@ describe("ingestHtmlBlotter", () => {
   it("ingests rows with case-number and content-based dedupe keys", async () => {
     const { ctx, sink } = setup(BASIC);
     const r = await ingestHtmlBlotter(locality, source, { provider: "blotter_html", url: "https://pd.example.gov/b" }, ctx);
-    expect(r).toEqual({ inserted: 3, skipped: 0 });
+    expect(r).toMatchObject({ inserted: 3, skipped: 0 });
     const keys = [...sink.records.keys()];
     expect(keys).toContain("blotter_html:Exampleville:26-0001");
     // no case number: keyed by content (date, offense, location, description), not by position
@@ -106,13 +106,13 @@ describe("ingestHtmlBlotter", () => {
 
   it("returns zeros on HTTP errors, network errors, and table-less pages", async () => {
     const meta = { provider: "blotter_html", url: "https://pd.example.gov/b" } as const;
-    expect(await ingestHtmlBlotter(locality, source, meta, setup(new Response("", { status: 503 })).ctx)).toEqual({ inserted: 0, skipped: 0 });
-    expect(await ingestHtmlBlotter(locality, source, meta, setup("<p>JS-rendered page</p>").ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestHtmlBlotter(locality, source, meta, setup(new Response("", { status: 503 })).ctx)).toMatchObject({ inserted: 0, skipped: 0 });
+    expect(await ingestHtmlBlotter(locality, source, meta, setup("<p>JS-rendered page</p>").ctx)).toMatchObject({ inserted: 0, skipped: 0 });
     const { ctx } = setup("");
     ctx.fetch = (async () => {
       throw new Error("dns");
     }) as unknown as typeof fetch;
-    expect(await ingestHtmlBlotter(locality, source, meta, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestHtmlBlotter(locality, source, meta, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
   });
 
   it("respects robots.txt disallow", async () => {
@@ -123,7 +123,7 @@ describe("ingestHtmlBlotter", () => {
         ? new Response("User-agent: *\nDisallow: /blotter")
         : new Response(BASIC)) as unknown as typeof fetch;
     const r = await ingestHtmlBlotter(locality, source, { provider: "blotter_html", url: "https://robots-block.example.gov/blotter" }, ctx);
-    expect(r).toEqual({ inserted: 0, skipped: 0 });
+    expect(r).toMatchObject({ inserted: 0, skipped: 0 });
     expect(sink.records.size).toBe(0);
   });
 });
