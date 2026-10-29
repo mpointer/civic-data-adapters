@@ -29,6 +29,9 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
   from 2018.
 
 ### Changed
+- The release workflow's publish job now runs in a GitHub Environment named `npm-publish`, so a human
+  approval can be required before anything reaches npm. Nothing changes until you add required reviewers
+  to that environment; see `RELEASING.md` for the setup (including the matching field on npmjs.com).
 - **PDFs are parsed in an isolated worker thread** (`src/pdf.ts`) with a 512 MB heap ceiling and a 30 s
   deadline. A PDF that hangs or exhausts memory now fails that one run (`failed`, with the reason) and
   the host process carries on. pdf.js's console warnings no longer reach your stdout. This contains

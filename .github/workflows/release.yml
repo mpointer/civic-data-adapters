@@ -3,6 +3,11 @@ name: Release
 # Publish to npm with provenance on version tags (v0.1.0, v0.2.0, ...).
 # Publishes via npm trusted publishing (OIDC): no token secret. The npm package
 # must list this repo's release workflow as a trusted publisher.
+#
+# The job runs in the "npm-publish" environment so a human can be required to
+# approve each publish (Settings > Environments > npm-publish > Required
+# reviewers). See RELEASING.md. Until that environment has protection rules the
+# job runs without waiting.
 on:
   push:
     tags: ["v*"]
@@ -10,6 +15,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: npm-publish
     permissions:
       contents: read
       id-token: write # npm provenance attestation
