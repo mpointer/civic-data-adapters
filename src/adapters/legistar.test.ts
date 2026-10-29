@@ -41,7 +41,7 @@ describe("ingestLegistar", () => {
     ctx.logger = { log };
     // Untyped stored JSON can lack required fields the types demand.
     const bad = { provider: "legistar" } as unknown as Parameters<typeof ingestLegistar>[2];
-    expect(await ingestLegistar(locality, source, bad, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestLegistar(locality, source, bad, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("missing clientId"), "warn");
   });
@@ -127,7 +127,7 @@ describe("ingestLegistar", () => {
     const { ctx } = setup(fetchMock);
     const meta = { provider: "legistar", clientId: "example" } as const;
     await ingestLegistar(locality, source, meta, ctx);
-    expect(await ingestLegistar(locality, source, meta, ctx)).toEqual({ inserted: 0, skipped: 1 });
+    expect(await ingestLegistar(locality, source, meta, ctx)).toMatchObject({ inserted: 0, skipped: 1 });
   });
 });
 
@@ -164,7 +164,9 @@ describe("ingestLegistar malformed responses", () => {
 
   it("fails with a clear error when the events payload isn't an array", async () => {
     const { p } = await run({ "/Events?": () => json({ Message: "An error has occurred." }) });
-    await expect(p).rejects.toThrow(/Events.*expected an array/);
+    const r = await p;
+    expect(r).toMatchObject({ inserted: 0, status: "failed" });
+    expect(r.problems.join()).toMatch(/Events.*expected an array/);
   });
 
   it("falls back to a meeting shell when the items payload isn't an array", async () => {

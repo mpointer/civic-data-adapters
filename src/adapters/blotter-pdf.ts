@@ -18,6 +18,7 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows, FETCH_TIMEOUT_MS } from "../internal.js";
+import { createRun } from "../outcome.js";
 import { contentKey } from "../dedupe.js";
 
 const require = createRequire(import.meta.url);
@@ -125,18 +126,10 @@ export async function ingestPdfBlotter(
   meta: MetaFor<"blotter_pdf">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
+  const run = createRun(ctx, `[${locality.name}] blotter_pdf:`);
   const url = meta.url ?? source.url;
-  if (!url) {
-    await ctx.logger?.log(`[${locality.name}] blotter_pdf: no url in source metadata`, "warn");
-    return { inserted: 0, skipped: 0 };
-  }
-  if (!(await robotsAllows(url, ctx))) {
-    await ctx.logger?.log(
-      `[${locality.name}] blotter_pdf: disallowed by robots.txt — skipping`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
-  }
+  if (!url) return run.fail("no url in source metadata");
+  if (!(await robotsAllows(url, ctx))) return run.skip("disallowed by robots.txt — skipping");
 
   let pdfText: string;
   try {
@@ -144,31 +137,27 @@ export async function ingestPdfBlotter(
       headers: { "User-Agent": ctxUserAgent(ctx) },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!res.ok) {
-      await ctx.logger?.log(`[${locality.name}] blotter_pdf: HTTP ${res.status} from ${url}`, "warn");
-      return { inserted: 0, skipped: 0 };
-    }
+    if (!res.ok) return run.fail(`HTTP ${res.status} from ${url}`);
     const buf = Buffer.from(await res.arrayBuffer());
     const pdfParse = require("pdf-parse") as (
       b: Buffer,
       o?: { max?: number }
-    ) => Promise<{ text: string }>;
+    ) => Promise<{ text: string; numpages?: number }>;
     const parsed = await pdfParse(buf, { max: MAX_PAGES });
     pdfText = parsed.text;
+    if (typeof parsed.numpages === "number" && parsed.numpages > MAX_PAGES) {
+      await run.problem(`PDF has ${parsed.numpages} pages; only the first ${MAX_PAGES} were read`);
+    }
   } catch (err) {
-    await ctx.logger?.log(`[${locality.name}] blotter_pdf: error — ${err}`, "warn");
-    return { inserted: 0, skipped: 0 };
+    return run.fail(`error — ${err}`);
   }
 
   const incidents = extractIncidents(pdfText);
-  if (!incidents.length) {
-    await ctx.logger?.log(`[${locality.name}] blotter_pdf: no incidents parsed from ${url}`, "warn");
-    return { inserted: 0, skipped: 0 };
-  }
+  if (!incidents.length) return run.fail(`no incidents parsed from ${url}`);
 
   const records = pdfIncidentRecords(incidents, { url, locality, source, since: meta.since });
 
   const result = await ctx.sink.save(records);
   await ctx.logger?.log(`[${locality.name}] blotter_pdf: +${result.inserted} incidents from ${url}`);
-  return result;
+  return run.done(result, records.length);
 }

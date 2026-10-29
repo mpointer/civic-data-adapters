@@ -21,7 +21,7 @@ describe("ingestSocrataRecords", () => {
   it("rejects stored meta missing url/resourceId at runtime", async () => {
     const { ctx, fetchMock, log } = setup([]);
     const bad = { provider: "socrata", url: "https://data.example.gov" } as unknown as MetaFor<"socrata">;
-    expect(await ingestSocrataRecords(locality, source, bad, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestSocrataRecords(locality, source, bad, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("missing url or resourceId"), "warn");
   });
@@ -108,7 +108,7 @@ describe("ingestSocrataRecords malformed responses", () => {
   it("stops with a warning when the body isn't an array (error payload served as 200)", async () => {
     const { ctx, log, sink } = setup([]);
     ctx.fetch = (async () => new Response(JSON.stringify({ error: true, message: "nope" }))) as unknown as typeof fetch;
-    expect(await ingestSocrataRecords(locality, source, blotterMeta, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestSocrataRecords(locality, source, blotterMeta, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
     expect(sink.records.size).toBe(0);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("unexpected response shape"), "warn");
   });

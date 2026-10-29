@@ -22,6 +22,7 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { createRun } from "../outcome.js";
 
 const MAX_PAGES = 10;
 
@@ -206,7 +207,9 @@ async function fetchFeedPage(
       }
     );
     if (!res.ok) return null;
-    return (await res.json()) as FeedResponse;
+    const body = (await res.json()) as FeedResponse | null;
+    // An error payload served as 200 has no results array: treat it as no answer.
+    return body && typeof body === "object" && Array.isArray(body.results) ? body : null;
   } catch {
     return null;
   }
@@ -221,7 +224,30 @@ export async function fetchCrimewatchIncidents(
   options: CrimewatchFetchOptions = {},
   maxPages = MAX_PAGES
 ): Promise<CrimewatchIncident[]> {
-  if (!(await robotsAllows(url, options))) return [];
+  return (await fetchCrimewatch(url, options, maxPages)).incidents;
+}
+
+interface CrimewatchFetch {
+  incidents: CrimewatchIncident[];
+  /** Why the fetch came back empty or short; empty when it ran clean. */
+  problems: string[];
+  /** True when robots.txt refused the page (a policy skip, not a failure). */
+  robotsBlocked: boolean;
+}
+
+async function fetchCrimewatch(
+  url: string,
+  options: CrimewatchFetchOptions,
+  maxPages: number
+): Promise<CrimewatchFetch> {
+  const problems: string[] = [];
+  const incidents: CrimewatchIncident[] = [];
+  const stop = (problem: string): CrimewatchFetch => ({
+    incidents,
+    problems: [...problems, problem],
+    robotsBlocked: false,
+  });
+  if (!(await robotsAllows(url, options))) return { incidents, problems, robotsBlocked: true };
 
   let html: string;
   try {
@@ -229,19 +255,18 @@ export async function fetchCrimewatchIncidents(
       headers: { "User-Agent": ctxUserAgent(options) },
       signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) return stop(`HTTP ${res.status} from ${url}`);
     html = await res.text();
-  } catch {
-    return [];
+  } catch (err) {
+    return stop(`fetch error for ${url} — ${err}`);
   }
 
   const settings = extractSettings(html, url);
-  if (!settings) return [];
+  if (!settings) return stop(`could not read CrimeWatch settings from ${url}`);
 
   const token = await getToken(settings.apiBase, options);
-  if (!token) return [];
+  if (!token) return stop("could not get a CrimeWatch session token");
 
-  const incidents: CrimewatchIncident[] = [];
   const pushResults = (data: FeedResponse) => {
     for (const r of data.results ?? []) {
       incidents.push({
@@ -258,7 +283,11 @@ export async function fetchCrimewatchIncidents(
 
   for (const bundle of BUNDLES) {
     const first = await fetchFeedPage(settings, token, bundle, 0, options);
-    if (!first || first.count === 0) continue;
+    if (!first) {
+      problems.push(`"${bundle}" feed did not answer with usable data`);
+      continue;
+    }
+    if (first.count === 0) continue;
 
     pushResults(first);
     const totalPages = first.pages ?? 1;
@@ -266,13 +295,19 @@ export async function fetchCrimewatchIncidents(
     while (page < totalPages && page < maxPages) {
       await new Promise((r) => setTimeout(r, 300));
       const data = await fetchFeedPage(settings, token, bundle, page, options);
-      if (!data) break;
+      if (!data) {
+        problems.push(`"${bundle}" feed stopped answering at page ${page + 1} of ${totalPages}`);
+        break;
+      }
       pushResults(data);
       page++;
     }
+    if (page < totalPages && page >= maxPages && maxPages > 1) {
+      problems.push(`"${bundle}" feed has ${totalPages} pages; only the first ${maxPages} were read`);
+    }
   }
 
-  return incidents;
+  return { incidents, problems, robotsBlocked: false };
 }
 
 export async function ingestCrimewatchBlotter(
@@ -281,19 +316,18 @@ export async function ingestCrimewatchBlotter(
   meta: MetaFor<"blotter_crimewatch">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
+  const run = createRun(ctx, `[${locality.name}] blotter_crimewatch:`);
   const url = meta.url ?? source.url;
-  if (!url) {
-    await ctx.logger?.log(`[${locality.name}] blotter_crimewatch: no url in source metadata`, "warn");
-    return { inserted: 0, skipped: 0 };
-  }
+  if (!url) return run.fail("no url in source metadata");
 
-  const incidents = await fetchCrimewatchIncidents(url, ctx);
+  const fetched = await fetchCrimewatch(url, ctx, MAX_PAGES);
+  if (fetched.robotsBlocked) return run.skip("disallowed by robots.txt — skipping");
+  const { incidents } = fetched;
+  for (const p of fetched.problems) await run.problem(p);
   if (!incidents.length) {
-    await ctx.logger?.log(
-      `[${locality.name}] blotter_crimewatch: no incidents parsed from ${url}`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
+    // Nothing came back: a clean feed with no posts is "ok", a feed that
+    // errored is already recorded as a problem and so reports "failed".
+    return run.done({ inserted: 0, skipped: 0 }, 0);
   }
 
   const records: CivicRecord[] = [];
@@ -325,5 +359,5 @@ export async function ingestCrimewatchBlotter(
   await ctx.logger?.log(
     `[${locality.name}] blotter_crimewatch: +${result.inserted} records, ${result.skipped} skipped from ${url}`
   );
-  return result;
+  return run.done(result, records.length);
 }

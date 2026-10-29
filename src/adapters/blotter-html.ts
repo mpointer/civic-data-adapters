@@ -14,6 +14,7 @@ import type {
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows, FETCH_TIMEOUT_MS } from "../internal.js";
 import { contentKey } from "../dedupe.js";
+import { createRun } from "../outcome.js";
 
 const MAX_ROWS = 500;
 
@@ -129,18 +130,10 @@ export async function ingestHtmlBlotter(
   meta: MetaFor<"blotter_html">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
+  const run = createRun(ctx, `[${locality.name}] blotter_html:`);
   const url = meta.url ?? source.url;
-  if (!url) {
-    await ctx.logger?.log(`[${locality.name}] blotter_html: no url in source metadata`, "warn");
-    return { inserted: 0, skipped: 0 };
-  }
-  if (!(await robotsAllows(url, ctx))) {
-    await ctx.logger?.log(
-      `[${locality.name}] blotter_html: disallowed by robots.txt — skipping`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
-  }
+  if (!url) return run.fail("no url in source metadata");
+  if (!(await robotsAllows(url, ctx))) return run.skip("disallowed by robots.txt — skipping");
 
   let html: string;
   try {
@@ -148,21 +141,14 @@ export async function ingestHtmlBlotter(
       headers: { "User-Agent": ctxUserAgent(ctx) },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!res.ok) {
-      await ctx.logger?.log(`[${locality.name}] blotter_html: HTTP ${res.status} from ${url}`, "warn");
-      return { inserted: 0, skipped: 0 };
-    }
+    if (!res.ok) return run.fail(`HTTP ${res.status} from ${url}`);
     html = await res.text();
   } catch (err) {
-    await ctx.logger?.log(`[${locality.name}] blotter_html: fetch error — ${err}`, "warn");
-    return { inserted: 0, skipped: 0 };
+    return run.fail(`fetch error — ${err}`);
   }
 
   const tables = parseHtmlTables(html);
-  if (!tables.length) {
-    await ctx.logger?.log(`[${locality.name}] blotter_html: no tables found at ${url}`, "warn");
-    return { inserted: 0, skipped: 0 };
-  }
+  if (!tables.length) return run.fail(`no tables found at ${url}`);
 
   const overrides = {
     dateCol: meta.dateCol,
@@ -178,9 +164,9 @@ export async function ingestHtmlBlotter(
   );
 
   const blotterRows = extractRowsFromTable(bestTable, overrides);
-  if (!blotterRows.length) {
-    await ctx.logger?.log(`[${locality.name}] blotter_html: no rows parsed`, "warn");
-    return { inserted: 0, skipped: 0 };
+  if (!blotterRows.length) return run.fail("no rows parsed");
+  if (bestTable.length - 1 > MAX_ROWS) {
+    await run.problem(`table has ${bestTable.length - 1} rows; only the first ${MAX_ROWS} were read`);
   }
 
   const records: CivicRecord[] = [];
@@ -220,5 +206,5 @@ export async function ingestHtmlBlotter(
   await ctx.logger?.log(
     `[${locality.name}] blotter_html: +${result.inserted} records, ${result.skipped} skipped from ${url}`
   );
-  return result;
+  return run.done(result, records.length);
 }

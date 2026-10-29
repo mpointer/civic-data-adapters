@@ -26,7 +26,7 @@ const meta = { provider: "html_minutes", url: "https://minutes.example.gov/2026-
 describe("ingestHtmlMinutes", () => {
   it("skips with a warning when no LLM callback is provided", async () => {
     const { ctx, log, fetchMock } = setup(undefined);
-    expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("requires ctx.summarize"), "warn");
   });
@@ -53,7 +53,7 @@ describe("ingestHtmlMinutes", () => {
     const { ctx, sink, log } = setup(summarize);
     const result = await ingestHtmlMinutes(locality, source, meta, ctx);
 
-    expect(result).toEqual({ inserted: 2, skipped: 0 });
+    expect(result).toMatchObject({ inserted: 2, skipped: 0 });
     const recs = [...sink.records.values()];
     expect(recs[0]).toMatchObject({
       provider: "html_minutes",
@@ -71,7 +71,7 @@ describe("ingestHtmlMinutes", () => {
     const summarize = vi.fn(async () => JSON.stringify([{ title: "Approve budget" }]));
     const { ctx } = setup(summarize);
     expect((await ingestHtmlMinutes(locality, source, meta, ctx)).inserted).toBe(1);
-    expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toEqual({ inserted: 0, skipped: 1 });
+    expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toMatchObject({ inserted: 0, skipped: 1 });
   });
 
   describe("dedupe keys", () => {
@@ -86,7 +86,7 @@ describe("ingestHtmlMinutes", () => {
     it("keeps items that share their opening words distinct (the 0.3 bug)", async () => {
       const summarize = vi.fn(async () => JSON.stringify(TITLES.map((title) => ({ title }))));
       const { ctx, sink } = setup(summarize);
-      expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toEqual({ inserted: 3, skipped: 0 });
+      expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toMatchObject({ inserted: 3, skipped: 0 });
       expect(sink.records.size).toBe(3);
       // ...and the legacy key really did collapse them
       expect(new Set(TITLES.map((t) => legacyMinutesDedupeKey(7, t))).size).toBe(1);
@@ -99,7 +99,7 @@ describe("ingestHtmlMinutes", () => {
       const april = { provider: "html_minutes", url: "https://minutes.example.gov/2026-04" } as const;
       expect((await ingestHtmlMinutes(locality, source, march, ctx)).inserted).toBe(1);
       expect((await ingestHtmlMinutes(locality, source, april, ctx)).inserted).toBe(1);
-      expect(await ingestHtmlMinutes(locality, source, march, ctx)).toEqual({ inserted: 0, skipped: 1 });
+      expect(await ingestHtmlMinutes(locality, source, march, ctx)).toMatchObject({ inserted: 0, skipped: 1 });
     });
 
     it("ignores case and surrounding whitespace in the title, but not the source or the document", () => {
@@ -121,7 +121,7 @@ describe("ingestHtmlMinutes", () => {
 
   it("returns zeros when the model replies with prose instead of JSON", async () => {
     const { ctx, log, sink } = setup(async () => "There were no actionable items.");
-    expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
     expect(sink.records.size).toBe(0);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("parse failed"), "warn");
   });
@@ -130,7 +130,7 @@ describe("ingestHtmlMinutes", () => {
     const { ctx, log } = setup(async () => {
       throw new Error("rate limited");
     });
-    expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await ingestHtmlMinutes(locality, source, meta, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
     expect(log).toHaveBeenCalledWith(expect.stringContaining("rate limited"), "warn");
   });
 

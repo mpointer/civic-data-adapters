@@ -18,6 +18,7 @@ import type {
 import { ctxFetch, ctxUserAgent } from "../internal.js";
 import { parseUSASpendingPage, type USASpendingPage } from "../responses.js";
 import { sanitizeCivicDate } from "../dates.js";
+import { createRun, type Run } from "../outcome.js";
 
 const BASE_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/";
 const PAGE_SIZE = 100;
@@ -76,7 +77,8 @@ async function fetchAwardGroup(
   endDate: string,
   cityName: string,
   stateAbbr: string,
-  ctx: AdapterContext
+  ctx: AdapterContext,
+  run: Run
 ): Promise<CivicRecord[]> {
   let page = 1;
   let hitCap = false;
@@ -90,10 +92,7 @@ async function fetchAwardGroup(
       break;
     }
     if (Date.now() - startedAt > TIME_BUDGET_MS) {
-      await ctx.logger?.log(
-        `[${locality.name}] usaspending (${recordType}): time budget reached at page ${page} — stopping early`,
-        "warn"
-      );
+      await run.problem(`(${recordType}) time budget reached at page ${page} — stopping early`);
       break;
     }
     const body = {
@@ -125,26 +124,20 @@ async function fetchAwardGroup(
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!res.ok) {
-        await ctx.logger?.log(`[${locality.name}] usaspending: HTTP ${res.status}`, "warn");
+        await run.problem(`(${recordType}) HTTP ${res.status} on page ${page}`);
         break;
       }
       data = parseUSASpendingPage(await res.json());
     } catch (err) {
-      await ctx.logger?.log(`[${locality.name}] usaspending: fetch error — ${err}`, "warn");
+      await run.problem(`(${recordType}) fetch error on page ${page} — ${err}`);
       break;
     }
     if (!data) {
-      await ctx.logger?.log(
-        `[${locality.name}] usaspending (${recordType}): unexpected response shape on page ${page} — stopping`,
-        "warn"
-      );
+      await run.problem(`(${recordType}) unexpected response shape on page ${page} — stopping`);
       break;
     }
     if (data.dropped > 0) {
-      await ctx.logger?.log(
-        `[${locality.name}] usaspending (${recordType}): skipped ${data.dropped} malformed award(s) on page ${page}`,
-        "warn"
-      );
+      await run.problem(`(${recordType}) skipped ${data.dropped} malformed award(s) on page ${page}`);
     }
 
     for (const award of data.awards) {
@@ -195,10 +188,7 @@ async function fetchAwardGroup(
   }
 
   if (hitCap) {
-    await ctx.logger?.log(
-      `[${locality.name}] usaspending (${recordType}): hit page cap (${MAX_PAGES}) — results may be incomplete`,
-      "warn"
-    );
+    await run.problem(`(${recordType}) hit page cap (${MAX_PAGES}) — results may be incomplete`);
   }
   return records;
 }
@@ -209,13 +199,8 @@ export async function ingestUSASpending(
   meta: MetaFor<"usaspending">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
-  if (!locality.state) {
-    await ctx.logger?.log(
-      `[${locality.name}] usaspending: locality.state is not set — skipping`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
-  }
+  const run = createRun(ctx, `[${locality.name}] usaspending:`);
+  if (!locality.state) return run.fail("locality.state is not set — skipping");
 
   const awardTypes = meta.awardTypes ?? "all";
   const lookbackDays = meta.lookbackDays ?? 365;
@@ -245,7 +230,8 @@ export async function ingestUSASpending(
         endDate,
         cityName,
         stateAbbr,
-        ctx
+        ctx,
+        run
       ))
     );
   }
@@ -254,5 +240,5 @@ export async function ingestUSASpending(
   await ctx.logger?.log(
     `[${locality.name}] usaspending: +${result.inserted} records, ${result.skipped} skipped`
   );
-  return result;
+  return run.done(result, records.length);
 }

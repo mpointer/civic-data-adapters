@@ -11,6 +11,7 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
+import { createRun } from "../outcome.js";
 import {
   type LegistarEventItem,
   parseLegistarEvents,
@@ -84,33 +85,32 @@ export async function ingestLegistar(
   meta: MetaFor<"legistar">,
   ctx: AdapterContext
 ): Promise<AdapterResult> {
+  const run = createRun(ctx, `[${locality.name}] legistar:`);
   const clientId = meta.clientId;
-  if (!clientId) {
-    await ctx.logger?.log(
-      `[${locality.name}] legistar: missing clientId in source metadata`,
-      "warn"
-    );
-    return { inserted: 0, skipped: 0 };
-  }
+  if (!clientId) return run.fail("missing clientId in source metadata");
 
   const since =
     meta.since ?? new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   const afterFilter = encodeURIComponent(`EventDate ge datetime'${since}'`);
-  const parsedEvents = parseLegistarEvents(
-    await legistarGet(
-      clientId,
-      `Events?$filter=${afterFilter}&$orderby=EventDate desc&$top=50`,
-      ctx
-    )
-  );
-  if (!parsedEvents) throw new Error(`Legistar ${clientId} Events: expected an array`);
-  if (parsedEvents.dropped > 0) {
-    await ctx.logger?.log(
-      `[${locality.name}] legistar: skipped ${parsedEvents.dropped} malformed event(s)`,
-      "warn"
+  let parsedEvents: ReturnType<typeof parseLegistarEvents>;
+  try {
+    parsedEvents = parseLegistarEvents(
+      await legistarGet(
+        clientId,
+        `Events?$filter=${afterFilter}&$orderby=EventDate desc&$top=50`,
+        ctx
+      )
     );
+  } catch (err) {
+    return run.fail(`Events request failed — ${err}`);
+  }
+  if (!parsedEvents) return run.fail(`Legistar ${clientId} Events: expected an array`);
+  if (parsedEvents.dropped > 0) {
+    await run.problem(`skipped ${parsedEvents.dropped} malformed event(s)`);
   }
   let droppedItems = 0;
+  let itemFetchFailures = 0;
+  let enrichFailures = 0;
 
   const records: CivicRecord[] = [];
 
@@ -129,7 +129,8 @@ export async function ingestLegistar(
       items = parsedItems.rows;
       droppedItems += parsedItems.dropped;
     } catch {
-      // Event with no items (cancelled, future-only) — still record the meeting shell
+      // Still record the meeting shell, but say the agenda could not be read.
+      itemFetchFailures++;
     }
 
     if (items.length === 0) {
@@ -179,7 +180,8 @@ export async function ingestLegistar(
             }
           }
         } catch {
-          // PDF extraction is best-effort
+          // Best-effort: the item falls back to its title text below.
+          enrichFailures++;
         }
       }
 
@@ -195,7 +197,12 @@ export async function ingestLegistar(
           .join(". ");
         if (ctx.summarize) {
           if (fallbackText.length > 20) {
-            summary = await ctx.summarize(SUMMARIZE_SYSTEM, fallbackText);
+            try {
+              summary = await ctx.summarize(SUMMARIZE_SYSTEM, fallbackText);
+            } catch {
+              enrichFailures++;
+              summary = fallbackText;
+            }
           }
         } else {
           summary = fallbackText || null;
@@ -226,11 +233,14 @@ export async function ingestLegistar(
     }
   }
 
-  if (droppedItems > 0) {
-    await ctx.logger?.log(
-      `[${locality.name}] legistar: skipped ${droppedItems} malformed agenda item(s)`,
-      "warn"
+  if (droppedItems > 0) await run.problem(`skipped ${droppedItems} malformed agenda item(s)`);
+  if (itemFetchFailures > 0) {
+    await run.problem(`could not read the agenda for ${itemFetchFailures} meeting(s); recorded as meeting shells`);
+  }
+  if (enrichFailures > 0) {
+    await run.problem(
+      `${enrichFailures} agenda item(s) have no LLM/PDF summary because the attachment, PDF or summarize call failed`
     );
   }
-  return ctx.sink.save(records);
+  return run.done(await ctx.sink.save(records), records.length);
 }

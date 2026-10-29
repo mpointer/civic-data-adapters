@@ -55,7 +55,7 @@ describe("ingestNonprofitExplorer pagination guard (unbounded-pagination timeout
     const result = await promise;
 
     expect(fetchMock).toHaveBeenCalledTimes(20); // MAX_PAGES
-    expect(result).toEqual({ inserted: 0, skipped: 0 });
+    expect(result).toMatchObject({ inserted: 0, skipped: 0 });
     expect(log).toHaveBeenCalledWith(expect.stringContaining("hit page cap"), "warn");
   });
 
@@ -143,7 +143,7 @@ describe("ingestNonprofitExplorer malformed responses", () => {
 
   it("does not throw when organizations is missing; warns and stops", async () => {
     const { ctx, log } = mk({ error: "rate limited" });
-    await expect(ingestNonprofitExplorer(loc, { id: 1 }, meta, ctx)).resolves.toEqual({ inserted: 0, skipped: 0 });
+    await expect(ingestNonprofitExplorer(loc, { id: 1 }, meta, ctx)).resolves.toMatchObject({ inserted: 0, skipped: 0 });
     expect(log).toHaveBeenCalledWith(expect.stringContaining("unexpected response shape"), "warn");
   });
 

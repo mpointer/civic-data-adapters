@@ -5,6 +5,21 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
 
 ## [Unreleased]
 
+### Upgrading
+- **`AdapterResult` gains `status` and `problems`.** `status` is `ok`, `partial`, `failed` or `skipped`
+  (see the README). Code that only reads `inserted` and `skipped` keeps working. Code that constructs an
+  `AdapterResult` itself must add both fields. Adapters now **return** `failed` for source-side
+  trouble; `ingestLegistar` used to throw when the Events request failed or came back malformed, and
+  no longer does. Only errors from your own `sink.save` propagate.
+
+### Changed
+- Runs that lost data now say so instead of looking like a clean run: `blotter_html` tables longer than
+  500 rows, `blotter_pdf` documents longer than 20 pages, `socrata` rows that were not objects,
+  CrimeWatch feeds that stopped answering or were cut at the page cap, and Legistar meetings whose
+  agenda could not be read or items whose summary fell back to the title.
+- A throwing `summarize` callback no longer aborts a Legistar run; the item keeps its title text and the
+  run is `partial`.
+
 ## [0.5.0] - 2026-10-28
 
 ### Upgrading

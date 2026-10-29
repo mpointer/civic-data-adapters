@@ -211,9 +211,23 @@ export interface AdapterContext {
   summarize?: (systemPrompt: string, text: string) => Promise<string>;
 }
 
+/**
+ * What happened to a run:
+ *  - `ok`: ran to the end. Zero records is still ok: a quiet day is not a failure.
+ *  - `partial`: saved some data, but something was lost (page cap or time budget
+ *    hit, a page or row failed, malformed rows dropped). See `problems`.
+ *  - `failed`: could not get data (HTTP or fetch error, wrong response shape,
+ *    nothing parseable, missing or invalid config). Nothing was saved.
+ *  - `skipped`: deliberately did not run (robots.txt refusal, provider that is a stub).
+ */
+export type AdapterStatus = "ok" | "partial" | "failed" | "skipped";
+
 export interface AdapterResult {
   inserted: number;
   skipped: number;
+  status: AdapterStatus;
+  /** Human-readable, one per distinct problem. Empty when `status` is "ok". */
+  problems: string[];
 }
 
 /**

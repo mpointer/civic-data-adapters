@@ -103,17 +103,18 @@ describe("ingestCrimewatchBlotter", () => {
       fetch: makeFetch({ feedFn: feed({ incident: [{ nid: 99, title: "Burglary", body: "b", lat: "1", lng: "2" }] }) }) as unknown as typeof fetch,
     };
     const meta = { provider: "blotter_crimewatch", url: URL1 } as const;
-    expect(await ingestCrimewatchBlotter(locality, { id: 1 }, meta, ctx)).toEqual({ inserted: 1, skipped: 0 });
+    expect(await ingestCrimewatchBlotter(locality, { id: 1 }, meta, ctx)).toMatchObject({ inserted: 1, skipped: 0 });
     expect(sink.records.get("crimewatch:99")).toMatchObject({ type: "police_blotter", title: "Burglary", raw: { nid: 99, lat: "1", lng: "2" } });
-    expect(await ingestCrimewatchBlotter(locality, { id: 1 }, meta, ctx)).toEqual({ inserted: 0, skipped: 1 });
+    expect(await ingestCrimewatchBlotter(locality, { id: 1 }, meta, ctx)).toMatchObject({ inserted: 0, skipped: 1 });
   });
 
-  it("warns on no url and on empty feeds", async () => {
+  it("reports a missing url as failed, and genuinely empty feeds as ok", async () => {
     const log = vi.fn();
     const ctx: AdapterContext = { sink: new MemorySink(), logger: { log }, skipRobotsCheck: true, fetch: makeFetch({ feedFn: feed({}) }) as unknown as typeof fetch };
-    await ingestCrimewatchBlotter(locality, { id: 1 }, { provider: "blotter_crimewatch" }, ctx);
+    const noUrl = await ingestCrimewatchBlotter(locality, { id: 1 }, { provider: "blotter_crimewatch" }, ctx);
+    expect(noUrl).toMatchObject({ status: "failed", problems: ["no url in source metadata"] });
     expect(log).toHaveBeenCalledWith(expect.stringContaining("no url"), "warn");
-    await ingestCrimewatchBlotter(locality, { id: 1 }, { provider: "blotter_crimewatch", url: URL1 }, ctx);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("no incidents parsed"), "warn");
+    const empty = await ingestCrimewatchBlotter(locality, { id: 1 }, { provider: "blotter_crimewatch", url: URL1 }, ctx);
+    expect(empty).toEqual({ inserted: 0, skipped: 0, status: "ok", problems: [] });
   });
 });

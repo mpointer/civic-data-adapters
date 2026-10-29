@@ -62,14 +62,14 @@ describe("runAdapter dispatch", () => {
   it("skips unknown providers with a warning instead of throwing", async () => {
     const { ctx, log, fetchMock } = mk();
     const r = await runAdapter(locality, { id: 9 }, { provider: "carrier_pigeon" } as unknown as CivicAdapterMeta, ctx);
-    expect(r).toEqual({ inserted: 0, skipped: 0 });
+    expect(r).toMatchObject({ inserted: 0, skipped: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("unknown provider 'carrier_pigeon'"), "warn");
   });
 
   it.each(["granicus", "civicplus", "boarddocs"] as const)("%s is a logged no-op stub", async (provider) => {
     const { ctx, log, fetchMock } = mk();
-    expect(await runAdapter(locality, { id: 1 }, { provider }, ctx)).toEqual({ inserted: 0, skipped: 0 });
+    expect(await runAdapter(locality, { id: 1 }, { provider }, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith(expect.stringContaining(`${provider}: no public API`), "warn");
   });
