@@ -6,7 +6,7 @@ import type { AdapterContext } from "./types.js";
 import { isAllowedByRobots } from "./robots.js";
 
 export const DEFAULT_USER_AGENT =
-  "civic-data-adapters/0.5.0 (+https://github.com/mpointer/civic-data-adapters)";
+  "civic-data-adapters/0.6.0 (+https://github.com/mpointer/civic-data-adapters)";
 
 /** Deadline for a single outbound request. Node's own default is ~300 s. */
 export const FETCH_TIMEOUT_MS = 30_000;
