@@ -21,7 +21,7 @@ export {
 } from "./adapters/blotter-crimewatch.js";
 export type { CrimewatchIncident, CrimewatchFetchOptions } from "./adapters/blotter-crimewatch.js";
 export { ingestUSASpending } from "./adapters/usaspending.js";
-export { ingestNonprofitExplorer } from "./adapters/nonprofit.js";
+export { ingestNonprofitExplorer, nonprofitDedupeKey } from "./adapters/nonprofit.js";
 export {
   discover,
   discoverBlotter,

@@ -12,6 +12,15 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
   trouble; `ingestLegistar` used to throw when the Events request failed or came back malformed, and
   no longer does. Only errors from your own `sink.save` propagate.
 
+- **`nonprofit_explorer` keys per filing when the response says which one.** The key was
+  `propublica:nonprofit:<ein>`, so a new year's return for the same organization was skipped as a
+  duplicate of last year's. When the response carries a `tax_period` (YYYYMM) the key is now
+  `propublica:nonprofit:<ein>:<tax_period>` (`nonprofitDedupeKey(ein, taxPeriod)`), and `raw.taxPeriod`
+  is saved. Rows stored under the old key will be inserted once more, as a second record, on the first
+  run after upgrading; the old key is `nonprofitDedupeKey(ein, null)`. If the response has no
+  `tax_period` the key is unchanged. I could not reach the live API to confirm it sends the field; check
+  that `raw.taxPeriod` is populated in your first run.
+
 ### Changed
 - **Legistar is no longer serial.** Agenda reads, attachment lookups, PDF fetches and `summarize` calls run
   with bounded concurrency (`meta.concurrency`, default 4, clamped to 1-8). Against a simulated
