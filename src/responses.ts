@@ -170,6 +170,8 @@ export interface PropublicaOrg {
   asset_amount: number | null;
   filing_date: string | null;
   form_type: string | null;
+  /** The filing's tax period as "YYYYMM", when the response carries one. */
+  tax_period: string | null;
 }
 
 export interface PropublicaPage {
@@ -177,6 +179,13 @@ export interface PropublicaPage {
   dropped: number;
   /** null when the response omitted a usable `num_pages`. */
   numPages: number | null;
+}
+
+/** A tax period as "YYYYMM": six digits with a month 01-12, from a number or a string. */
+function taxPeriod(v: unknown): string | null {
+  const s = typeof v === "number" && Number.isInteger(v) ? String(v) : typeof v === "string" ? v.trim() : "";
+  const month = Number(s.slice(4));
+  return /^\d{6}$/.test(s) && month >= 1 && month <= 12 ? s : null;
 }
 
 /** `search.json`: `{ num_pages, organizations: [] }`. Orgs need an ein and a name. */
@@ -196,6 +205,7 @@ export function parsePropublicaPage(body: unknown): PropublicaPage | null {
       asset_amount: num(r.asset_amount),
       filing_date: str(r.filing_date),
       form_type: str(r.form_type),
+      tax_period: taxPeriod(r.tax_period),
     };
   });
   if (!parsed) return null;

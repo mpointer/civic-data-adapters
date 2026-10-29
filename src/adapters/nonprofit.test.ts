@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { ingestNonprofitExplorer } from "./nonprofit.js";
+import { ingestNonprofitExplorer, nonprofitDedupeKey } from "./nonprofit.js";
 import { MemorySink } from "../types.js";
 import type { AdapterContext, Locality, CivicSource } from "../types.js";
 
@@ -162,6 +162,32 @@ describe("ingestNonprofitExplorer malformed responses", () => {
     await ingestNonprofitExplorer(loc, { id: 1 }, meta, ctx);
     expect([...sink.records.keys()].sort()).toEqual(["propublica:nonprofit:000000008", "propublica:nonprofit:7"]);
     expect(sink.records.get("propublica:nonprofit:7")?.raw).toMatchObject({ ein: 7 });
+  });
+
+  describe("dedupe key follows the filing, not just the organization", () => {
+    it("adds a new record when an organization files for a new period", async () => {
+      const sink = new MemorySink();
+      const run = async (period: unknown, income: number) => {
+        const { ctx } = mk({ num_pages: 1, organizations: [org({ tax_period: period, income_amount: income })] });
+        return ingestNonprofitExplorer(loc, { id: 1 }, meta, { ...ctx, sink });
+      };
+      expect(await run(202212, 5000)).toMatchObject({ inserted: 1, skipped: 0 });
+      expect(await run(202312, 7000)).toMatchObject({ inserted: 1, skipped: 0 });
+      expect(await run(202312, 7000)).toMatchObject({ inserted: 0, skipped: 1 }); // same filing again: no-op
+      expect([...sink.records.keys()].sort()).toEqual(["propublica:nonprofit:123456789:202212", "propublica:nonprofit:123456789:202312"]);
+      expect(sink.records.get("propublica:nonprofit:123456789:202312")?.raw).toMatchObject({ taxPeriod: "202312", incomeAmount: 7000 });
+    });
+
+    it("keeps the EIN-only key when the response carries no tax period", async () => {
+      const { ctx, sink } = mk({ num_pages: 1, organizations: [org()] });
+      await ingestNonprofitExplorer(loc, { id: 1 }, meta, ctx);
+      expect([...sink.records.keys()]).toEqual(["propublica:nonprofit:123456789"]);
+    });
+
+    it("exposes the key so consumers can find rows to migrate", () => {
+      expect(nonprofitDedupeKey(123456789, "202312")).toBe("propublica:nonprofit:123456789:202312");
+      expect(nonprofitDedupeKey("000000008", null)).toBe("propublica:nonprofit:000000008");
+    });
   });
 
   it("tolerates a missing num_pages by treating it as a single page", async () => {

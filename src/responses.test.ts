@@ -84,6 +84,13 @@ describe("parsePropublicaPage", () => {
     expect(r?.numPages).toBe(3);
   });
 
+  it("reads tax_period as YYYYMM from a number or a string, and ignores anything else", () => {
+    const period = (v: unknown) => parsePropublicaPage({ organizations: [{ ...o, tax_period: v }] })?.orgs[0]?.tax_period;
+    expect(period(202312)).toBe("202312");
+    expect(period("202312")).toBe("202312");
+    for (const bad of [undefined, null, "", "2023", 20231, 2023120, "Dec 2023", 202313, 202300, 0, {}]) expect(period(bad)).toBeNull();
+  });
+
   it("reports numPages as null when absent or nonsensical", () => {
     for (const n of [undefined, null, "many", -1, NaN]) expect(parsePropublicaPage({ num_pages: n, organizations: [] })?.numPages).toBeNull();
     expect(parsePropublicaPage({ num_pages: 2.9, organizations: [] })?.numPages).toBe(2);

@@ -67,6 +67,15 @@ const NTEE_LABELS: Record<string, string> = {
   Z: "Unknown",
 };
 
+/**
+ * Dedupe key for one organization's filing. With a tax period the key is per
+ * filing, so a new year's return becomes a new record instead of being skipped
+ * as a duplicate of last year's; without one it is the EIN alone, as before.
+ */
+export function nonprofitDedupeKey(ein: string | number, taxPeriod: string | null): string {
+  return `propublica:nonprofit:${String(ein)}${taxPeriod ? `:${taxPeriod}` : ""}`;
+}
+
 function nteeCategory(code: string | null): string {
   if (!code) return "Nonprofit";
   const letter = code.charAt(0).toUpperCase();
@@ -178,11 +187,12 @@ export async function ingestNonprofitExplorer(
         summary: [category, income, assets].filter(Boolean).join(" · ") || null,
         url: `https://projects.propublica.org/nonprofits/organizations/${org.ein}`,
         date: org.filing_date?.slice(0, 10) ?? null,
-        dedupeKey: `propublica:nonprofit:${String(org.ein)}`,
+        dedupeKey: nonprofitDedupeKey(org.ein, org.tax_period),
         localityName: locality.name,
         sourceId: source.id,
         raw: {
           ein: org.ein,
+          taxPeriod: org.tax_period,
           nteeCode: org.ntee_code,
           category,
           incomeAmount: org.income_amount,
