@@ -13,6 +13,13 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
   no longer does. Only errors from your own `sink.save` propagate.
 
 ### Changed
+- **Legistar is no longer serial.** Agenda reads, attachment lookups, PDF fetches and `summarize` calls run
+  with bounded concurrency (`meta.concurrency`, default 4, clamped to 1-8). Against a simulated
+  50-meeting x 10-item run with 40 ms latency and 300 ms LLM calls, wall time went from 193 s to 49 s.
+  Your `summarize` callback is now called concurrently, so it must be safe to run in parallel (and
+  mind your provider's rate limits; lower `concurrency` if needed).
+- **Legistar reads past 50 events.** It pages 50 at a time up to `meta.maxPages` (default 4, so 200
+  events). Hitting the cap is reported as `partial` rather than silently dropping the rest.
 - Runs that lost data now say so instead of looking like a clean run: `blotter_html` tables longer than
   500 rows, `blotter_pdf` documents longer than 20 pages, `socrata` rows that were not objects,
   CrimeWatch feeds that stopped answering or were cut at the page cap, and Legistar meetings whose

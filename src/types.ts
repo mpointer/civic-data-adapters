@@ -44,6 +44,10 @@ export interface LegistarMeta {
   clientId: string;
   /** ISO date lower bound for meetings (default: 30 days back). */
   since?: string;
+  /** Requests (and `summarize` calls) in flight at once. Default 4, clamped to 1-8. */
+  concurrency?: number;
+  /** Pages of 50 events to read (default 4, so up to 200 events). Hitting the cap is reported as `partial`. */
+  maxPages?: number;
 }
 
 /** Free-form HTML/PDF minutes parsed by the caller's LLM (`ctx.summarize`). */

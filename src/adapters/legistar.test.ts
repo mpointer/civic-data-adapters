@@ -190,3 +190,108 @@ describe("ingestLegistar malformed responses", () => {
     expect([...sink.records.values()][0]?.title).toBe("Meeting — 2026-03-04");
   });
 });
+
+describe("ingestLegistar paging and concurrency", () => {
+  const events = (from: number, n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      EventId: from + i,
+      EventDate: "2026-03-04T00:00:00",
+      EventBodyName: "City Council",
+    }));
+  const meta = { provider: "legistar", clientId: "example", since: "2026-01-01" } as const;
+  const skipOf = (url: string) => Number(/\$skip=(\d+)/.exec(decodeURIComponent(url))?.[1] ?? 0);
+
+  it("pages past 50 events until a short page", async () => {
+    const urls: string[] = [];
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("/EventItems")) return json([]);
+      const skip = skipOf(url);
+      return json(skip === 0 ? events(1, 50) : skip === 50 ? events(51, 3) : []);
+    });
+    const { ctx, sink } = setup(fetchMock);
+    const r = await ingestLegistar(locality, source, meta, ctx);
+    expect(r).toMatchObject({ status: "ok", inserted: 53, problems: [] });
+    expect(sink.records.size).toBe(53);
+    const pages = urls.filter((u) => u.includes("/Events?")).map(skipOf);
+    expect(pages).toEqual([0, 50]);
+  });
+
+  it("stops at maxPages and says the result may be incomplete", async () => {
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("/EventItems")) return json([]);
+      return json(events(skipOf(url) + 1, 50));
+    });
+    const { ctx } = setup(fetchMock);
+    const r = await ingestLegistar(locality, source, { ...meta, maxPages: 2 }, ctx);
+    expect(r.status).toBe("partial");
+    expect(r.inserted).toBe(100);
+    expect(r.problems.join()).toMatch(/100 events.*may be incomplete/);
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes("/Events?"))).toHaveLength(2);
+  });
+
+  it("fetches agendas in parallel, bounded by meta.concurrency, and keeps event order", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (!url.includes("/EventItems")) return json(events(1, 12));
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      const id = Number(/Events\/(\d+)\/EventItems/.exec(url)?.[1]);
+      return json([{ EventItemId: id * 10, EventItemTitle: `Item for event ${id}` }]);
+    });
+    const { ctx, sink } = setup(fetchMock);
+    const r = await ingestLegistar(locality, source, { ...meta, concurrency: 3 }, ctx);
+    expect(r.status).toBe("ok");
+    expect(peak).toBe(3);
+    expect([...sink.records.values()].map((x) => x.title)).toEqual(
+      Array.from({ length: 12 }, (_, i) => `Item for event ${i + 1}`)
+    );
+  });
+
+  it("uses a modest default concurrency and clamps absurd values", async () => {
+    for (const [concurrency, max] of [[undefined, 4], [500, 8], [0, 1]] as const) {
+      let inFlight = 0;
+      let peak = 0;
+      const fetchMock = vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (!url.includes("/EventItems")) return json(events(1, 20));
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 2));
+        inFlight--;
+        return json([]);
+      });
+      const { ctx } = setup(fetchMock);
+      await ingestLegistar(locality, source, { ...meta, concurrency }, ctx);
+      expect(peak).toBe(max);
+    }
+  });
+
+  it("summarizes items in parallel too, within the same bound", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (!url.includes("/EventItems")) return json(events(1, 1));
+      return json(Array.from({ length: 10 }, (_, i) => ({ EventItemId: i + 1, EventItemTitle: `A sufficiently long title ${i}` })));
+    });
+    const { ctx } = setup(fetchMock, {
+      summarize: async () => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 3));
+        inFlight--;
+        return "summary";
+      },
+    });
+    const r = await ingestLegistar(locality, source, { ...meta, concurrency: 5 }, ctx);
+    expect(r).toMatchObject({ status: "ok", inserted: 10 });
+    expect(peak).toBe(5);
+  });
+});

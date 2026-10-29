@@ -12,6 +12,7 @@ import type {
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
 import { createRun } from "../outcome.js";
+import { mapLimit } from "../concurrency.js";
 import {
   type LegistarEventItem,
   parseLegistarEvents,
@@ -75,10 +76,20 @@ export async function extractPdfText(url: string, ctx: FetchCtx = {}): Promise<s
   }
 }
 
+const EVENTS_PAGE = 50;
+const DEFAULT_MAX_PAGES = 4;
+const DEFAULT_CONCURRENCY = 4;
+const MAX_CONCURRENCY = 8;
+
+type EventRow = NonNullable<ReturnType<typeof parseLegistarEvents>>["rows"][number];
+
 // Ingest Legistar council minutes for one locality/source. Fetches events
-// since meta.since (ISO date; default 30 days back), summarizes each agenda
-// item via ctx.summarize when provided (falling back to the item's
-// title/action text when it is not), and hands records to ctx.sink.
+// since meta.since (ISO date; default 30 days back, up to meta.maxPages pages
+// of 50), reads each meeting's agenda and summarizes each agenda item via
+// ctx.summarize when provided (falling back to the item's title/action text
+// when it is not), and hands records to ctx.sink. Agenda reads and per-item
+// attachment/PDF/summarize work run with bounded concurrency
+// (meta.concurrency); records keep event order.
 export async function ingestLegistar(
   locality: Locality,
   source: CivicSource,
@@ -92,31 +103,53 @@ export async function ingestLegistar(
   const since =
     meta.since ?? new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   const afterFilter = encodeURIComponent(`EventDate ge datetime'${since}'`);
-  let parsedEvents: ReturnType<typeof parseLegistarEvents>;
-  try {
-    parsedEvents = parseLegistarEvents(
-      await legistarGet(
-        clientId,
-        `Events?$filter=${afterFilter}&$orderby=EventDate desc&$top=50`,
-        ctx
-      )
-    );
-  } catch (err) {
-    return run.fail(`Events request failed — ${err}`);
+  const maxPages = Math.max(1, Math.floor(meta.maxPages ?? DEFAULT_MAX_PAGES) || DEFAULT_MAX_PAGES);
+  const limit = Math.min(
+    MAX_CONCURRENCY,
+    Math.max(1, Math.floor(meta.concurrency ?? DEFAULT_CONCURRENCY) || 1)
+  );
+
+  // 1. Events, page by page, until a short page or the cap.
+  const events: EventRow[] = [];
+  let droppedEvents = 0;
+  for (let page = 0; ; page++) {
+    let parsed: ReturnType<typeof parseLegistarEvents>;
+    try {
+      parsed = parseLegistarEvents(
+        await legistarGet(
+          clientId,
+          `Events?$filter=${afterFilter}&$orderby=EventDate desc&$top=${EVENTS_PAGE}&$skip=${page * EVENTS_PAGE}`,
+          ctx
+        )
+      );
+    } catch (err) {
+      if (page === 0) return run.fail(`Events request failed — ${err}`);
+      await run.problem(`Events page ${page + 1} failed — ${err}`);
+      break;
+    }
+    if (!parsed) {
+      if (page === 0) return run.fail(`Legistar ${clientId} Events: expected an array`);
+      await run.problem(`Events page ${page + 1}: expected an array`);
+      break;
+    }
+    events.push(...parsed.rows);
+    droppedEvents += parsed.dropped;
+    if (parsed.rows.length + parsed.dropped < EVENTS_PAGE) break;
+    if (page + 1 >= maxPages) {
+      await run.problem(
+        `read ${maxPages * EVENTS_PAGE} events and there may be more — results may be incomplete; raise meta.maxPages or narrow meta.since`
+      );
+      break;
+    }
   }
-  if (!parsedEvents) return run.fail(`Legistar ${clientId} Events: expected an array`);
-  if (parsedEvents.dropped > 0) {
-    await run.problem(`skipped ${parsedEvents.dropped} malformed event(s)`);
-  }
+  if (droppedEvents > 0) await run.problem(`skipped ${droppedEvents} malformed event(s)`);
+
   let droppedItems = 0;
   let itemFetchFailures = 0;
   let enrichFailures = 0;
 
-  const records: CivicRecord[] = [];
-
-  for (const evt of parsedEvents.rows) {
-    // Fetch agenda items for this meeting
-    let items: LegistarEventItem[] = [];
+  // 2. Each meeting's agenda.
+  const agendas = await mapLimit(events, limit, async (evt) => {
     try {
       const parsedItems = parseLegistarEventItems(
         await legistarGet(
@@ -126,111 +159,124 @@ export async function ingestLegistar(
         )
       );
       if (!parsedItems) throw new Error("EventItems: expected an array");
-      items = parsedItems.rows;
       droppedItems += parsedItems.dropped;
+      return parsedItems.rows;
     } catch {
       // Still record the meeting shell, but say the agenda could not be read.
       itemFetchFailures++;
+      return [] as LegistarEventItem[];
     }
+  });
 
-    if (items.length === 0) {
-      // Record a shell for the meeting itself (no items yet)
-      records.push({
-        provider: "legistar",
-        type: "council_meeting",
-        title: `${evt.EventBodyName ? `${evt.EventBodyName} ` : ""}Meeting — ${evt.EventDate.slice(0, 10)}`,
-        summary: null,
-        url: evt.EventAgendaFile ?? null,
-        date: evt.EventDate.slice(0, 10),
-        location: evt.EventLocation || null,
-        dedupeKey: `legistar:${clientId}:${evt.EventId}:meeting`,
-        localityName: locality.name,
-        sourceId: source.id,
-        raw: {
-          meetingId: String(evt.EventId),
-          body: evt.EventBodyName,
-          location: evt.EventLocation,
-          agendaFile: evt.EventAgendaFile,
-          items: [],
-        },
-      });
-      continue;
-    }
-
-    // One record per agenda item
-    for (const item of items) {
-      if (!item.EventItemTitle?.trim()) continue;
-
-      // Try to get a PDF for richer summarization — only worth the fetch when
-      // an LLM callback is available to condense it.
-      let summary: string | null = null;
-      if (ctx.summarize && item.EventItemMatterFile) {
-        try {
-          const pdfUrl = firstAttachmentUrl(
-            await legistarGet(
-              clientId,
-              `MatterAttachments?$filter=MatterAttachmentMatterId eq ${item.EventItemMatterFile}&$top=1`,
-              ctx
-            )
-          );
-          if (pdfUrl) {
-            const pdfText = await extractPdfText(pdfUrl, ctx);
-            if (pdfText) {
-              summary = await ctx.summarize(SUMMARIZE_SYSTEM, pdfText);
-            }
-          }
-        } catch {
-          // Best-effort: the item falls back to its title text below.
-          enrichFailures++;
-        }
+  // 3. One work unit per meeting shell or agenda item, in event order.
+  type Unit = { evt: EventRow; item: (LegistarEventItem & { EventItemTitle: string }) | null };
+  const units: Unit[] = [];
+  events.forEach((evt, i) => {
+    const items = agendas[i] ?? [];
+    if (items.length === 0) units.push({ evt, item: null });
+    else {
+      for (const item of items) {
+        if (item.EventItemTitle?.trim()) units.push({ evt, item: { ...item, EventItemTitle: item.EventItemTitle } });
       }
-
-      // Fall back to item title + action as the summary text. Without
-      // ctx.summarize the fallback text itself becomes the summary.
-      if (!summary && item.EventItemTitle) {
-        const fallbackText = [
-          item.EventItemTitle,
-          item.EventItemActionName ? `Action: ${item.EventItemActionName}` : null,
-          item.EventItemPassedFlagName ? `Result: ${item.EventItemPassedFlagName}` : null,
-        ]
-          .filter(Boolean)
-          .join(". ");
-        if (ctx.summarize) {
-          if (fallbackText.length > 20) {
-            try {
-              summary = await ctx.summarize(SUMMARIZE_SYSTEM, fallbackText);
-            } catch {
-              enrichFailures++;
-              summary = fallbackText;
-            }
-          }
-        } else {
-          summary = fallbackText || null;
-        }
-      }
-
-      records.push({
-        provider: "legistar",
-        type: "council_meeting",
-        title: item.EventItemTitle,
-        summary,
-        url: item.EventItemMatterFile
-          ? `https://${clientId}.legistar.com/MatterDetail.aspx?ID=${item.EventItemMatterFile}`
-          : evt.EventAgendaFile ?? null,
-        date: evt.EventDate.slice(0, 10),
-        dedupeKey: `legistar:${clientId}:${evt.EventId}:${item.EventItemId}`,
-        localityName: locality.name,
-        sourceId: source.id,
-        raw: {
-          meetingId: String(evt.EventId),
-          body: evt.EventBodyName,
-          itemId: item.EventItemId,
-          action: item.EventItemActionName,
-          result: item.EventItemPassedFlagName,
-          matterType: item.EventItemMatterType,
-        },
-      });
     }
+  });
+
+  const records = (
+    await mapLimit(units, limit, async ({ evt, item }): Promise<CivicRecord> => {
+      if (!item) return shellRecord(evt);
+      return itemRecord(evt, item);
+    })
+  );
+
+  async function summarizeItem(item: LegistarEventItem): Promise<string | null> {
+    // Try to get a PDF for richer summarization: only worth the fetch when an
+    // LLM callback is available to condense it.
+    let summary: string | null = null;
+    if (ctx.summarize && item.EventItemMatterFile) {
+      try {
+        const pdfUrl = firstAttachmentUrl(
+          await legistarGet(
+            clientId,
+            `MatterAttachments?$filter=MatterAttachmentMatterId eq ${item.EventItemMatterFile}&$top=1`,
+            ctx
+          )
+        );
+        if (pdfUrl) {
+          const pdfText = await extractPdfText(pdfUrl, ctx);
+          if (pdfText) summary = await ctx.summarize(SUMMARIZE_SYSTEM, pdfText);
+        }
+      } catch {
+        // Best-effort: the item falls back to its title text below.
+        enrichFailures++;
+      }
+    }
+    if (summary) return summary;
+
+    // Fall back to item title + action as the summary text. Without
+    // ctx.summarize the fallback text itself becomes the summary.
+    const fallbackText = [
+      item.EventItemTitle,
+      item.EventItemActionName ? `Action: ${item.EventItemActionName}` : null,
+      item.EventItemPassedFlagName ? `Result: ${item.EventItemPassedFlagName}` : null,
+    ]
+      .filter(Boolean)
+      .join(". ");
+    if (!ctx.summarize) return fallbackText || null;
+    if (fallbackText.length <= 20) return null;
+    try {
+      return await ctx.summarize(SUMMARIZE_SYSTEM, fallbackText);
+    } catch {
+      enrichFailures++;
+      return fallbackText;
+    }
+  }
+
+  function shellRecord(evt: EventRow): CivicRecord {
+    // A record for the meeting itself (no items yet, or the agenda was unreadable).
+    return {
+      provider: "legistar",
+      type: "council_meeting",
+      title: `${evt.EventBodyName ? `${evt.EventBodyName} ` : ""}Meeting — ${evt.EventDate.slice(0, 10)}`,
+      summary: null,
+      url: evt.EventAgendaFile ?? null,
+      date: evt.EventDate.slice(0, 10),
+      location: evt.EventLocation || null,
+      dedupeKey: `legistar:${clientId}:${evt.EventId}:meeting`,
+      localityName: locality.name,
+      sourceId: source.id,
+      raw: {
+        meetingId: String(evt.EventId),
+        body: evt.EventBodyName,
+        location: evt.EventLocation,
+        agendaFile: evt.EventAgendaFile,
+        items: [],
+      },
+    };
+  }
+
+  async function itemRecord(evt: EventRow, item: LegistarEventItem & { EventItemTitle: string }): Promise<CivicRecord> {
+    const summary = await summarizeItem(item);
+    return {
+      provider: "legistar",
+      type: "council_meeting",
+      title: item.EventItemTitle,
+      summary,
+      url: item.EventItemMatterFile
+        ? `https://${clientId}.legistar.com/MatterDetail.aspx?ID=${item.EventItemMatterFile}`
+        : evt.EventAgendaFile ?? null,
+      date: evt.EventDate.slice(0, 10),
+      dedupeKey: `legistar:${clientId}:${evt.EventId}:${item.EventItemId}`,
+      localityName: locality.name,
+      sourceId: source.id,
+      raw: {
+        meetingId: String(evt.EventId),
+        body: evt.EventBodyName,
+        itemId: item.EventItemId,
+        action: item.EventItemActionName,
+        result: item.EventItemPassedFlagName,
+        matterType: item.EventItemMatterType,
+      },
+    };
   }
 
   if (droppedItems > 0) await run.problem(`skipped ${droppedItems} malformed agenda item(s)`);
