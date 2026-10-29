@@ -31,7 +31,10 @@ const URL_FIELD = { url: "string" } as const;
 const BLOTTER_FIELDS = { ...URL_FIELD, recordType: RECORD_TYPES } as const;
 
 const META_SPECS: Record<CivicProvider, MetaSpec> = {
-  legistar: { required: ["clientId"], fields: { clientId: "string", since: "string" } },
+  legistar: {
+    required: ["clientId"],
+    fields: { clientId: "string", since: "string", concurrency: "number", maxPages: "number" },
+  },
   html_minutes: {
     fields: { ...URL_FIELD, docType: ["planning_board", "school_board", "council"] },
   },
