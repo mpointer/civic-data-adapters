@@ -10,7 +10,7 @@
 // a candidate URL only needs its actual format confirmed.
 import { createRequire } from "node:module";
 import type { Locality, DiscoveryContext, DiscoveredSource } from "../types.js";
-import { assertPublicHttpUrl, ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { assertPublicHttpUrl, ctxUserAgent, robotsAllows, safeFetch } from "../internal.js";
 import { parseBlotterHtml } from "../adapters/blotter-html.js";
 import { extractIncidents } from "../adapters/blotter-pdf.js";
 import { isCrimewatchUrl, fetchCrimewatchIncidents } from "../adapters/blotter-crimewatch.js";
@@ -74,10 +74,12 @@ async function looksLikeBlotter(
 async function tryHtml(url: string, ctx: DiscoveryContext): Promise<CheckResult> {
   if (!(await robotsAllows(url, ctx))) return NONE;
   try {
-    const res = await ctxFetch(ctx)(url, {
-      headers: { "User-Agent": ctxUserAgent(ctx) },
-      signal: AbortSignal.timeout(10_000),
-    });
+    const res = await safeFetch(
+      ctx,
+      url,
+      { headers: { "User-Agent": ctxUserAgent(ctx) }, signal: AbortSignal.timeout(10_000) },
+      { guardInitial: true }
+    );
     if (!res.ok) return NONE;
     const rows = parseBlotterHtml(await readText(res, MAX_HTML_BYTES));
     const sample = rows
@@ -94,10 +96,12 @@ async function tryHtml(url: string, ctx: DiscoveryContext): Promise<CheckResult>
 async function tryPdf(url: string, ctx: DiscoveryContext): Promise<CheckResult> {
   if (!(await robotsAllows(url, ctx))) return NONE;
   try {
-    const res = await ctxFetch(ctx)(url, {
-      headers: { "User-Agent": ctxUserAgent(ctx) },
-      signal: AbortSignal.timeout(15_000),
-    });
+    const res = await safeFetch(
+      ctx,
+      url,
+      { headers: { "User-Agent": ctxUserAgent(ctx) }, signal: AbortSignal.timeout(15_000) },
+      { guardInitial: true }
+    );
     if (!res.ok) return NONE;
     const buf = Buffer.from(await readBytes(res, MAX_PDF_BYTES));
     // Lazy require keeps pdf-parse out of bundler static analysis and off the

@@ -17,7 +17,7 @@ import type {
   CivicRecord,
   CivicRecordType,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
+import { ctxUserAgent, FETCH_TIMEOUT_MS, safeFetch } from "../internal.js";
 import { createRun } from "../outcome.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 import { sanitizeCivicDate } from "../dates.js";
@@ -62,7 +62,6 @@ export async function ingestSocrataRecords(
 
   const endpoint = `${meta.url.replace(/\/$/, "")}/resource/${meta.resourceId}.json`;
   const isBlotter = recordType === "police_blotter" && !meta.titleFields;
-  const fetchImpl = ctxFetch(ctx);
 
   let offset = 0;
   const records: CivicRecord[] = [];
@@ -92,7 +91,7 @@ export async function ingestSocrataRecords(
 
     let rows: SocrataRow[];
     try {
-      const res = await fetchImpl(`${endpoint}?${params}`, {
+      const res = await safeFetch(ctx, `${endpoint}?${params}`, {
         headers: { "User-Agent": ctxUserAgent(ctx), Accept: "application/json" },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });

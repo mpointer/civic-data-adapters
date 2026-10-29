@@ -10,7 +10,7 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
+import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS, safeFetch } from "../internal.js";
 import { createRun } from "../outcome.js";
 import { mapLimit } from "../concurrency.js";
 import { readBytes, readJson, MAX_JSON_BYTES, MAX_PDF_BYTES } from "../body.js";
@@ -78,7 +78,7 @@ export async function readPdfText(
   const maxPages = opts.maxPages ?? 10;
   const maxChars = opts.maxChars ?? 8_000;
   try {
-    const res = await ctxFetch(ctx)(url, {
+    const res = await safeFetch(ctx, url, {
       headers: { "User-Agent": ctxUserAgent(ctx) },
       signal: AbortSignal.timeout(30_000),
     });

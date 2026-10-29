@@ -13,7 +13,7 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { ctxUserAgent, robotsAllows, safeFetch } from "../internal.js";
 import { createRun } from "../outcome.js";
 import { mapLimit } from "../concurrency.js";
 import { htmlToText } from "../html.js";
@@ -80,7 +80,7 @@ type Fetched =
 async function fetchText(url: string, ctx: AdapterContext): Promise<Fetched> {
   if (!(await robotsAllows(url, ctx))) return { kind: "skipped" };
   try {
-    const res = await ctxFetch(ctx)(url, {
+    const res = await safeFetch(ctx, url, {
       headers: { "User-Agent": ctxUserAgent(ctx) },
       signal: AbortSignal.timeout(30_000),
     });
