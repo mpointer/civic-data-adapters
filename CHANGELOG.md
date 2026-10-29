@@ -20,6 +20,16 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
   mind your provider's rate limits; lower `concurrency` if needed).
 - **Legistar reads past 50 events.** It pages 50 at a time up to `meta.maxPages` (default 4, so 200
   events). Hitting the cap is reported as `partial` rather than silently dropping the rest.
+- **`html_minutes` reads the whole document.** It used to send the first 8,000 characters to the model
+  and drop the rest (a 60,000-character page lost 87%). It now splits into overlapping sections, calls
+  `summarize` once per section (up to 3 at a time), merges and de-duplicates the items, and reads up to
+  64,000 characters or 60 PDF pages, reporting `partial` past that. The item cap is 200 (was 50).
+  Your `summarize` callback is called more than once per document and concurrently.
+- **`html_minutes` drops items the model invented.** An item whose title is mostly absent from its source
+  section is dropped, and a vote tally that is not in the text is removed from the item; both are
+  counted in `problems`. This guards against inventions, not paraphrase errors.
+- `html_minutes` failures say why (`HTTP 404`, fetch error, no text in the PDF), and a robots.txt refusal
+  is now `skipped` rather than "fetch failed".
 - Runs that lost data now say so instead of looking like a clean run: `blotter_html` tables longer than
   500 rows, `blotter_pdf` documents longer than 20 pages, `socrata` rows that were not objects,
   CrimeWatch feeds that stopped answering or were cut at the page cap, and Legistar meetings whose

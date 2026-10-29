@@ -209,7 +209,7 @@ describe("legistar", () => {
 
 describe("html_minutes", () => {
   const meta = { provider: "html_minutes", url: "https://minutes.example.gov/m" } as const;
-  const page = (n: number) => `<html><body>${"word ".repeat(n)}</body></html>`;
+  const page = (n: number) => `<html><body>Budget ${"word ".repeat(n)}</body></html>`;
   const items = JSON.stringify([{ title: "Budget", action: "Approved" }]);
 
   it("failed without a summarize callback and when the page can't be fetched", async () => {

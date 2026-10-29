@@ -86,6 +86,8 @@ ctx.summarize = async (system, text) =>
   (await gw.runText({ slug: "minutes", promptBody: text, system, cache: false, ... })).text;
 ```
 
+How `html_minutes` uses it: a document longer than one call (8,000 characters) is split into overlapping sections and `summarize` is called once per section, up to 3 at a time, so make the callback safe to run concurrently. Reading stops at 64,000 characters (60 PDF pages) and says so (`partial`). The model is not trusted: an extracted item whose title is not in the text it came from (at least 60% of its words) is dropped, and a vote count that is not in the text is removed from the item. That catches invented items and invented tallies; it cannot catch a paraphrase that changes the meaning, so treat the output as extracted, not verified. Up to 200 items are kept per document.
+
 ## Discovery (v0.2)
 
 Point at a city and find its civic sources. Discovery proposes candidates through an LLM callback, then **verifies every one by running the real adapter parsers against it**. A returned source has actually yielded data, right now, not "the model thinks this looks right":
