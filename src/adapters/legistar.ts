@@ -1,7 +1,6 @@
 // Legistar REST API client for council meeting minutes.
 // Covers ~3,500 US city/county councils via https://webapi.legistar.com/v1/{clientId}/
 // clientId is usually the lowercase city name; set it in meta.clientId.
-import { createRequire } from "node:module";
 import type {
   Locality,
   CivicSource,
@@ -12,6 +11,7 @@ import type {
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS, safeFetch } from "../internal.js";
 import { createRun } from "../outcome.js";
+import { parsePdf, PdfParserMissingError } from "../pdf.js";
 import { mapLimit } from "../concurrency.js";
 import { readBytes, readJson, MAX_JSON_BYTES, MAX_PDF_BYTES } from "../body.js";
 import {
@@ -21,7 +21,6 @@ import {
   firstAttachmentUrl,
 } from "../responses.js";
 
-const require = createRequire(import.meta.url);
 
 const SUMMARIZE_SYSTEM = `Summarize only what is stated in this document.
 If the document does not contain enough information, say so.
@@ -83,24 +82,19 @@ export async function readPdfText(
       signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) return null;
-    const buf = Buffer.from(await readBytes(res, MAX_PDF_BYTES));
-    // Lazy require keeps pdf-parse out of bundler static analysis and off the
-    // startup path for consumers that never touch PDFs.
-    const pdfParse = require("pdf-parse") as (
-      b: Buffer,
-      o?: { max?: number }
-    ) => Promise<{ text: string; numpages?: number }>;
-    const result = await pdfParse(buf, { max: maxPages });
-    const text = result.text ?? "";
+    const result = await parsePdf(await readBytes(res, MAX_PDF_BYTES), { maxPages });
+    const text = result.text;
     if (!text) return null;
-    const numpages = typeof result.numpages === "number" ? result.numpages : null;
+    const numpages = result.numpages;
     return {
       text: text.slice(0, maxChars),
       numpages,
       pagesRead: numpages === null ? maxPages : Math.min(numpages, maxPages),
       textTruncated: text.length > maxChars,
     };
-  } catch {
+  } catch (err) {
+    // A missing parser is the operator's to fix, not a property of this PDF.
+    if (err instanceof PdfParserMissingError) throw err;
     return null;
   }
 }
@@ -181,6 +175,7 @@ export async function ingestLegistar(
   let droppedItems = 0;
   let itemFetchFailures = 0;
   let enrichFailures = 0;
+  let parserMissing: string | null = null;
 
   // 2. Each meeting's agenda.
   const agendas = await mapLimit(events, limit, async (evt) => {
@@ -239,9 +234,10 @@ export async function ingestLegistar(
           const pdfText = await extractPdfText(pdfUrl, ctx);
           if (pdfText) summary = await ctx.summarize(SUMMARIZE_SYSTEM, pdfText);
         }
-      } catch {
+      } catch (err) {
         // Best-effort: the item falls back to its title text below.
         enrichFailures++;
+        if (err instanceof PdfParserMissingError) parserMissing = err.message;
       }
     }
     if (summary) return summary;
@@ -317,6 +313,7 @@ export async function ingestLegistar(
   if (itemFetchFailures > 0) {
     await run.problem(`could not read the agenda for ${itemFetchFailures} meeting(s); recorded as meeting shells`);
   }
+  if (parserMissing) await run.problem(`PDF attachments were not read: ${parserMissing}`);
   if (enrichFailures > 0) {
     await run.problem(
       `${enrichFailures} agenda item(s) have no LLM/PDF summary because the attachment, PDF or summarize call failed`

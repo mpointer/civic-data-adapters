@@ -1,2 +1,5 @@
 # Captured fixtures are compared byte-for-byte; never let git rewrite line endings.
 fixtures/** -text
+
+# Test PDFs are binary; never let git touch them.
+src/test-data/** binary

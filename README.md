@@ -4,7 +4,10 @@ TypeScript adapters for municipal and civic government data, extracted from a pr
 
 ```
 npm install civic-data-adapters
+npm install pdf-parse   # only if you use PDF sources: blotter_pdf, PDF minutes, Legistar attachments
 ```
+
+There are no runtime dependencies. PDF parsing needs `pdf-parse` (1.x or 2.x; 2.x is the maintained line), which you install and keep patched yourself. It runs in a worker thread with a 512 MB heap ceiling and a 30 s deadline, so a hostile or broken PDF fails that one run instead of hanging or crashing your process. Without it, PDF sources fail with a message saying what to install.
 
 ## What it covers
 

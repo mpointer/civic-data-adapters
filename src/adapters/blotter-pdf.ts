@@ -8,7 +8,6 @@
 // Parsing strategy: looks for lines that start with a date pattern, then
 // collects the following lines as the incident record until the next date.
 // Works for the most common PDF blotter layout (date + type + location stacked).
-import { createRequire } from "node:module";
 import type {
   Locality,
   CivicSource,
@@ -19,10 +18,10 @@ import type {
 } from "../types.js";
 import { ctxUserAgent, robotsAllows, FETCH_TIMEOUT_MS, safeFetch } from "../internal.js";
 import { createRun } from "../outcome.js";
+import { parsePdf } from "../pdf.js";
 import { readBytes, MAX_PDF_BYTES } from "../body.js";
 import { contentKey } from "../dedupe.js";
 
-const require = createRequire(import.meta.url);
 
 const MAX_PAGES = 20;
 
@@ -139,12 +138,7 @@ export async function ingestPdfBlotter(
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return run.fail(`HTTP ${res.status} from ${url}`);
-    const buf = Buffer.from(await readBytes(res, MAX_PDF_BYTES));
-    const pdfParse = require("pdf-parse") as (
-      b: Buffer,
-      o?: { max?: number }
-    ) => Promise<{ text: string; numpages?: number }>;
-    const parsed = await pdfParse(buf, { max: MAX_PAGES });
+    const parsed = await parsePdf(await readBytes(res, MAX_PDF_BYTES), { maxPages: MAX_PAGES });
     pdfText = parsed.text;
     if (typeof parsed.numpages === "number" && parsed.numpages > MAX_PAGES) {
       await run.problem(`PDF has ${parsed.numpages} pages; only the first ${MAX_PAGES} were read`);

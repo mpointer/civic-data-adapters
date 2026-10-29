@@ -8,7 +8,6 @@
 // yield rows right now", not "the model guessed this looks right". Neither
 // blotter adapter needs per-city column config (both auto-detect columns), so
 // a candidate URL only needs its actual format confirmed.
-import { createRequire } from "node:module";
 import type { Locality, DiscoveryContext, DiscoveredSource } from "../types.js";
 import { assertPublicHttpUrl, ctxUserAgent, robotsAllows, safeFetch } from "../internal.js";
 import { parseBlotterHtml } from "../adapters/blotter-html.js";
@@ -16,8 +15,7 @@ import { extractIncidents } from "../adapters/blotter-pdf.js";
 import { isCrimewatchUrl, fetchCrimewatchIncidents } from "../adapters/blotter-crimewatch.js";
 import { parseCandidateJson, localityCityName } from "./candidates.js";
 import { readBytes, readText, MAX_HTML_BYTES, MAX_PDF_BYTES } from "../body.js";
-
-const require = createRequire(import.meta.url);
+import { parsePdf, PdfParserMissingError } from "../pdf.js";
 
 const MAX_CANDIDATES = 4;
 const DEFAULT_YES = 0.7;
@@ -103,14 +101,7 @@ async function tryPdf(url: string, ctx: DiscoveryContext): Promise<CheckResult> 
       { guardInitial: true }
     );
     if (!res.ok) return NONE;
-    const buf = Buffer.from(await readBytes(res, MAX_PDF_BYTES));
-    // Lazy require keeps pdf-parse out of bundler static analysis and off the
-    // startup path (same pattern as the blotter_pdf adapter).
-    const pdfParse = require("pdf-parse") as (
-      b: Buffer,
-      o?: { max?: number }
-    ) => Promise<{ text: string }>;
-    const parsed = await pdfParse(buf, { max: 20 });
+    const parsed = await parsePdf(await readBytes(res, MAX_PDF_BYTES), { maxPages: 20 });
     const incidents = extractIncidents(parsed.text);
     const sample = incidents
       .slice(0, 8)
@@ -118,7 +109,8 @@ async function tryPdf(url: string, ctx: DiscoveryContext): Promise<CheckResult> 
       .join("\n")
       .slice(0, SAMPLE_CHARS);
     return { rows: incidents.length, sample };
-  } catch {
+  } catch (err) {
+    if (err instanceof PdfParserMissingError) await ctx.logger?.log(`blotter discovery: ${err.message}`, "warn");
     return NONE;
   }
 }

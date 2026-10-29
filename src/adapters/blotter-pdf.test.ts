@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { ingestHtmlMinutes } from "./html-minutes.js";
 import { extractIncidents, ingestPdfBlotter } from "./blotter-pdf.js";
 import { MemorySink } from "../types.js";
 import type { AdapterContext } from "../types.js";
@@ -62,5 +64,30 @@ describe("ingestPdfBlotter", () => {
       fetch: (async () => new Response("this is not a pdf")) as unknown as typeof fetch,
     };
     expect(await ingestPdfBlotter({ name: "X" }, { id: 1 }, { provider: "blotter_pdf", url: "https://p.example.gov/b.pdf" }, ctx)).toMatchObject({ inserted: 0, skipped: 0 });
+  });
+});
+
+describe("with a real PDF through the isolated parser", () => {
+  const pdf = new Uint8Array(readFileSync(new URL("../test-data/three-pages.pdf", import.meta.url)));
+  const ctxFor = (extra: Partial<AdapterContext> = {}): AdapterContext => ({
+    sink: new MemorySink(),
+    skipRobotsCheck: true,
+    // a fresh Response per call: the adapter may fetch the same URL more than once
+    fetch: (async () => new Response(pdf, { headers: { "content-type": "application/pdf" } })) as unknown as typeof fetch,
+    ...extra,
+  });
+
+  it("ingests a blotter PDF end to end", async () => {
+    const ctx = ctxFor();
+    const r = await ingestPdfBlotter({ name: "X" }, { id: 1 }, { provider: "blotter_pdf", url: "https://p.example.gov/b.pdf" }, ctx);
+    expect(r).toMatchObject({ status: "ok", inserted: 4 });
+    expect([...(ctx.sink as MemorySink).records.values()].map((x) => x.date)).toEqual(["2026-03-04", "2026-03-05", "2026-03-06", "2026-03-07"]);
+  });
+
+  it("feeds a PDF agenda to html_minutes", async () => {
+    const reply = JSON.stringify([{ title: "Vandalism at 300 Elm St" }]);
+    const ctx = ctxFor({ summarize: async () => reply });
+    const r = await ingestHtmlMinutes({ name: "X" }, { id: 1 }, { provider: "html_minutes", url: "https://m.example.gov/agenda.pdf" }, ctx);
+    expect(r).toMatchObject({ status: "ok", inserted: 1 });
   });
 });
