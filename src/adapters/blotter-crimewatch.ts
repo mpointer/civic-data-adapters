@@ -21,7 +21,7 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { ctxFetch, ctxUserAgent, robotsAllows, safeFetch } from "../internal.js";
 import { createRun } from "../outcome.js";
 import { readText, readJson, MAX_HTML_BYTES, MAX_JSON_BYTES } from "../body.js";
 
@@ -252,7 +252,7 @@ async function fetchCrimewatch(
 
   let html: string;
   try {
-    const res = await ctxFetch(options)(url, {
+    const res = await safeFetch(options, url, {
       headers: { "User-Agent": ctxUserAgent(options) },
       signal: AbortSignal.timeout(10000),
     });

@@ -41,6 +41,14 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
   scanner is a little slower than the regex was (about 3 MB in 150-200 ms). It also now infers omitted
   `</td>`, `</tr>` and `</table>`, keeps nested tables' cells out of their parent, and ignores tags in
   comments.
+- **Redirects are followed one hop at a time and each hop is vetted.** `fetch` used to follow up to 20
+  redirects blindly, so a public page could send the request to `http://169.254.169.254/` or to a path
+  robots.txt forbids. Now (page, PDF, minutes and Socrata fetches; at most 5 hops) every hop must be
+  http(s), not an internal or private address, must not resolve to a private address, and must pass
+  robots.txt, otherwise the run fails. A hostname resolving to a private address is also refused for URLs
+  discovery gets from the LLM. Nothing changes for a redirect between ordinary public pages. A name this
+  machine cannot resolve is not refused. This is a pre-flight check, not protection against true DNS
+  rebinding; the README says what to do for that.
 - Runs that lost data now say so instead of looking like a clean run: `blotter_html` tables longer than
   500 rows, `blotter_pdf` documents longer than 20 pages, `socrata` rows that were not objects,
   CrimeWatch feeds that stopped answering or were cut at the page cap, and Legistar meetings whose

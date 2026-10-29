@@ -71,6 +71,12 @@ Every record carries a stable `dedupeKey` (provider plus the source's natural id
 
 Other things the context controls: `fetch` override (tests, proxies), `userAgent`, and robots.txt checking, which is on by default and fails open. If your codebase already has its own robots implementation, inject it with `robotsCheck: (url) => Promise<boolean>` and it runs instead of the bundled checker, so you don't pay for a second robots.txt fetch per request (`skipRobotsCheck: true` remains the blunt off switch). One testing note, learned from the first adopter's suite: the bundled checker uses `ctx.fetch`, so a test that stubs fetch and asserts call counts will see one extra call per adapter invocation unless it mocks a robots.txt response, sets `skipRobotsCheck`, or injects a `robotsCheck`. Dates pass through `sanitizeCivicDate`, which rejects unparseable values and anything more than a year in the future, because open-data date fields do contain typos and a bad future date can make a "recent activity" view permanently wrong. That one comes from production experience.
 
+### What the network layer does and does not guard
+
+Page, PDF and Socrata fetches follow redirects themselves, one hop at a time, at most 5. Every hop must be http(s), not `localhost`/`.internal`/`.local`, not a private, loopback or link-local address (including cloud metadata at `169.254.169.254`), must not resolve to one, and must be allowed by robots.txt. A redirect that fails any of that fails the run. URLs that discovery gets from your LLM are vetted the same way before the first request. Response bodies are capped (5 MiB HTML, 25 MiB JSON and PDF).
+
+What it does not do: the URL in a source you configure by hand is trusted, and the name check is a pre-flight lookup, so a DNS server that answers differently the second time (true DNS rebinding) can still get through. If your sources come from untrusted input, pass a `fetch` that validates the address at connect time (for example an undici `Agent` whose `connect.lookup` rejects private addresses), or put the process behind an egress allowlist. A robots.txt fetch that errors still fails open.
+
 ## The LLM callback
 
 Two adapters touch unstructured text. `legistar` can summarize agenda items, and `html_minutes` cannot work at all without a parser for free-form minutes. Both use one optional hook:
