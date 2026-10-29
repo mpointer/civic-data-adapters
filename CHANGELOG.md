@@ -21,7 +21,19 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
   `tax_period` the key is unchanged. I could not reach the live API to confirm it sends the field; check
   that `raw.taxPeriod` is populated in your first run.
 
+- **`pdf-parse` is now an optional peer dependency, not a dependency.** If you use PDF sources
+  (`blotter_pdf`, PDF `html_minutes`, Legistar PDF attachments), run `npm install pdf-parse` yourself; it
+  can be 1.x or 2.x (2.x is maintained and tolerates PDFs that 1.x rejects: a hand-built test PDF failed
+  with "bad XRef entry" under 1.x and parsed under 2.x). Without it those sources fail with a message
+  saying so, and the package has zero runtime dependencies. The previous install pulled in pdf.js 1.10
+  from 2018.
+
 ### Changed
+- **PDFs are parsed in an isolated worker thread** (`src/pdf.ts`) with a 512 MB heap ceiling and a 30 s
+  deadline. A PDF that hangs or exhausts memory now fails that one run (`failed`, with the reason) and
+  the host process carries on. pdf.js's console warnings no longer reach your stdout. This contains
+  hangs and runaway memory; it is not a security sandbox, since a worker shares the process's
+  permissions.
 - **Legistar is no longer serial.** Agenda reads, attachment lookups, PDF fetches and `summarize` calls run
   with bounded concurrency (`meta.concurrency`, default 4, clamped to 1-8). Against a simulated
   50-meeting x 10-item run with 40 ms latency and 300 ms LLM calls, wall time went from 193 s to 49 s.

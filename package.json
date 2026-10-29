@@ -50,13 +50,20 @@
   ],
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "pdf-parse": "^1.1.1",
+    "pdf-parse-v2": "npm:pdf-parse@^2.4.5",
     "typescript": "^5.7.0",
     "vitest": "^4.1.12"
   },
   "engines": {
     "node": ">=20"
   },
-  "dependencies": {
-    "pdf-parse": "^1.1.1"
+  "peerDependencies": {
+    "pdf-parse": "^1.1.1 || ^2.4.0"
+  },
+  "peerDependenciesMeta": {
+    "pdf-parse": {
+      "optional": true
+    }
   }
 }
