@@ -5,6 +5,8 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-29
+
 ### Upgrading
 - **`AdapterResult` gains `status` and `problems`.** `status` is `ok`, `partial`, `failed` or `skipped`
   (see the README). Code that only reads `inserted` and `skipped` keeps working. Code that constructs an
@@ -18,8 +20,8 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
   `propublica:nonprofit:<ein>:<tax_period>` (`nonprofitDedupeKey(ein, taxPeriod)`), and `raw.taxPeriod`
   is saved. Rows stored under the old key will be inserted once more, as a second record, on the first
   run after upgrading; the old key is `nonprofitDedupeKey(ein, null)`. If the response has no
-  `tax_period` the key is unchanged. I could not reach the live API to confirm it sends the field; check
-  that `raw.taxPeriod` is populated in your first run.
+  `tax_period` the key is unchanged. It is not confirmed that the live search response carries the field;
+  check that `raw.taxPeriod` is populated in your first run.
 
 - **`pdf-parse` is now an optional peer dependency, not a dependency.** If you use PDF sources
   (`blotter_pdf`, PDF `html_minutes`, Legistar PDF attachments), run `npm install pdf-parse` yourself; it
