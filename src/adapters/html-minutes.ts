@@ -16,6 +16,8 @@ import type {
 import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
 import { createRun } from "../outcome.js";
 import { mapLimit } from "../concurrency.js";
+import { htmlToText } from "../html.js";
+import { readText, MAX_HTML_BYTES } from "../body.js";
 import { readPdfText } from "./legistar.js";
 
 /**
@@ -100,13 +102,7 @@ async function fetchText(url: string, ctx: AdapterContext): Promise<Fetched> {
         problem: notes.length ? `${notes.join("; ")}; items past the cut are not extracted` : null,
       };
     }
-    const html = await res.text();
-    const full = html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const full = htmlToText(await readText(res, MAX_HTML_BYTES));
     return {
       kind: "ok",
       text: full.slice(0, MAX_SOURCE_CHARS),

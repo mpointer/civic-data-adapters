@@ -19,6 +19,7 @@ import type {
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows, FETCH_TIMEOUT_MS } from "../internal.js";
 import { createRun } from "../outcome.js";
+import { readBytes, MAX_PDF_BYTES } from "../body.js";
 import { contentKey } from "../dedupe.js";
 
 const require = createRequire(import.meta.url);
@@ -138,7 +139,7 @@ export async function ingestPdfBlotter(
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return run.fail(`HTTP ${res.status} from ${url}`);
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = Buffer.from(await readBytes(res, MAX_PDF_BYTES));
     const pdfParse = require("pdf-parse") as (
       b: Buffer,
       o?: { max?: number }

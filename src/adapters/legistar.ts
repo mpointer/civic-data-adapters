@@ -13,6 +13,7 @@ import type {
 import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
 import { createRun } from "../outcome.js";
 import { mapLimit } from "../concurrency.js";
+import { readBytes, readJson, MAX_JSON_BYTES, MAX_PDF_BYTES } from "../body.js";
 import {
   type LegistarEventItem,
   parseLegistarEvents,
@@ -43,7 +44,7 @@ async function legistarGet(clientId: string, path: string, ctx: FetchCtx): Promi
     }
   );
   if (!res.ok) throw new Error(`Legistar ${clientId} ${path} → ${res.status}`);
-  return res.json();
+  return readJson(res, MAX_JSON_BYTES);
 }
 
 export async function verifyLegistarClient(clientId: string, ctx: FetchCtx = {}): Promise<boolean> {
@@ -82,7 +83,7 @@ export async function readPdfText(
       signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = Buffer.from(await readBytes(res, MAX_PDF_BYTES));
     // Lazy require keeps pdf-parse out of bundler static analysis and off the
     // startup path for consumers that never touch PDFs.
     const pdfParse = require("pdf-parse") as (

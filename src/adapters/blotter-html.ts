@@ -15,6 +15,8 @@ import type {
 import { ctxFetch, ctxUserAgent, robotsAllows, FETCH_TIMEOUT_MS } from "../internal.js";
 import { contentKey } from "../dedupe.js";
 import { createRun } from "../outcome.js";
+import { parseHtmlTables } from "../html.js";
+import { readText, MAX_HTML_BYTES } from "../body.js";
 
 const MAX_ROWS = 500;
 
@@ -41,33 +43,7 @@ function parseIsoDate(raw: string): string | null {
   return null;
 }
 
-// Lightweight HTML table parser — no external dependency needed.
-// Returns rows as string[][] (text content of each cell).
-export function parseHtmlTables(html: string): string[][][] {
-  const tables: string[][][] = [];
-  const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi;
-  const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
-  const tagRe = /<[^>]+>/g;
-
-  let tableMatch: RegExpExecArray | null;
-  while ((tableMatch = tableRe.exec(html)) !== null) {
-    const rows: string[][] = [];
-    let rowMatch: RegExpExecArray | null;
-    rowRe.lastIndex = 0;
-    while ((rowMatch = rowRe.exec(tableMatch[1]!)) !== null) {
-      const cells: string[] = [];
-      let cellMatch: RegExpExecArray | null;
-      cellRe.lastIndex = 0;
-      while ((cellMatch = cellRe.exec(rowMatch[1]!)) !== null) {
-        cells.push(cellMatch[1]!.replace(tagRe, "").replace(/\s+/g, " ").trim());
-      }
-      if (cells.length) rows.push(cells);
-    }
-    if (rows.length > 1) tables.push(rows);
-  }
-  return tables;
-}
+export { parseHtmlTables };
 
 function guessColumn(headers: string[], candidates: string[]): number {
   for (const cand of candidates) {
@@ -142,7 +118,7 @@ export async function ingestHtmlBlotter(
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return run.fail(`HTTP ${res.status} from ${url}`);
-    html = await res.text();
+    html = await readText(res, MAX_HTML_BYTES);
   } catch (err) {
     return run.fail(`fetch error — ${err}`);
   }

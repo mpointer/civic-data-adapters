@@ -17,6 +17,7 @@ import type {
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
 import { createRun } from "../outcome.js";
+import { readJson, MAX_JSON_BYTES } from "../body.js";
 import { parsePropublicaPage, type PropublicaPage } from "../responses.js";
 
 const BASE_URL = "https://projects.propublica.org/nonprofits/api/v2/search.json";
@@ -131,7 +132,7 @@ export async function ingestNonprofitExplorer(
         await run.problem(`HTTP ${res.status} on page ${page}`);
         break;
       }
-      data = parsePropublicaPage(await res.json());
+      data = parsePropublicaPage(await readJson(res, MAX_JSON_BYTES));
     } catch (err) {
       await run.problem(`fetch error on page ${page} — ${err}`);
       break;

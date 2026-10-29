@@ -19,6 +19,7 @@ import type {
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
 import { createRun } from "../outcome.js";
+import { readJson, MAX_JSON_BYTES } from "../body.js";
 import { sanitizeCivicDate } from "../dates.js";
 
 const WINDOW_DAYS = 90;
@@ -99,7 +100,7 @@ export async function ingestSocrataRecords(
         await run.problem(`HTTP ${res.status} from ${endpoint}${pages > 1 ? ` (page ${pages})` : ""}`);
         break;
       }
-      const body: unknown = await res.json();
+      const body: unknown = await readJson(res, MAX_JSON_BYTES);
       if (!Array.isArray(body)) {
         await run.problem(`unexpected response shape from ${endpoint} — stopping`);
         break;

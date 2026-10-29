@@ -8,6 +8,8 @@
 // a flaky robots.txt fetch shouldn't halt ingestion, though RFC 9309 would
 // disallow here too.
 
+import { readText } from "./body.js";
+
 const DEFAULT_UA_TOKEN = "civic-data-adapters";
 const ERROR_CACHE_TTL_MS = 5 * 60 * 1000; // a 5xx is usually transient: re-check soon
 const MAX_ROBOTS_BYTES = 512 * 1024; // RFC 9309: parse at least 500 KiB, no need for more
@@ -104,7 +106,7 @@ async function getRules(origin: string, options: RobotsCheckOptions): Promise<Ru
       signal: AbortSignal.timeout(5000),
     });
     if (res.ok) {
-      rules = parseRobotsTxt((await res.text()).slice(0, MAX_ROBOTS_BYTES), uaToken);
+      rules = parseRobotsTxt(await readText(res, MAX_ROBOTS_BYTES, { truncate: true }), uaToken);
     } else if (res.status >= 500) {
       rules = [{ prefix: "/", allow: false }]; // server in trouble: assume disallow
       ttlMs = ERROR_CACHE_TTL_MS;

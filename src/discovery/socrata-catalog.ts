@@ -17,6 +17,7 @@ import type {
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
 import { localityCityName } from "./candidates.js";
+import { readJson, MAX_JSON_BYTES } from "../body.js";
 
 const CATALOG_URL = "https://api.us.socrata.com/api/catalog/v1";
 const MIN_SCORE = 12;
@@ -233,7 +234,7 @@ export async function searchSocrataCatalog(
         );
         break;
       }
-      const body: unknown = await res.json();
+      const body: unknown = await readJson(res, MAX_JSON_BYTES);
       const results =
         typeof body === "object" && body !== null ? (body as { results?: unknown }).results : undefined;
       if (!Array.isArray(results)) {

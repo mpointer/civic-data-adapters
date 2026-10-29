@@ -23,6 +23,7 @@ import type {
 } from "../types.js";
 import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
 import { createRun } from "../outcome.js";
+import { readText, readJson, MAX_HTML_BYTES, MAX_JSON_BYTES } from "../body.js";
 
 const MAX_PAGES = 10;
 
@@ -121,7 +122,7 @@ async function getToken(apiBase: string, opts: CrimewatchFetchOptions): Promise<
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
-    return (await res.text()).trim();
+    return (await readText(res, 4096)).trim();
   } catch {
     return null;
   }
@@ -207,7 +208,7 @@ async function fetchFeedPage(
       }
     );
     if (!res.ok) return null;
-    const body = (await res.json()) as FeedResponse | null;
+    const body = (await readJson(res, MAX_JSON_BYTES)) as FeedResponse | null;
     // An error payload served as 200 has no results array: treat it as no answer.
     return body && typeof body === "object" && Array.isArray(body.results) ? body : null;
   } catch {
@@ -256,7 +257,7 @@ async function fetchCrimewatch(
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return stop(`HTTP ${res.status} from ${url}`);
-    html = await res.text();
+    html = await readText(res, MAX_HTML_BYTES);
   } catch (err) {
     return stop(`fetch error for ${url} — ${err}`);
   }

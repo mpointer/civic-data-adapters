@@ -19,6 +19,7 @@ import { ctxFetch, ctxUserAgent } from "../internal.js";
 import { parseUSASpendingPage, type USASpendingPage } from "../responses.js";
 import { sanitizeCivicDate } from "../dates.js";
 import { createRun, type Run } from "../outcome.js";
+import { readJson, MAX_JSON_BYTES } from "../body.js";
 
 const BASE_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/";
 const PAGE_SIZE = 100;
@@ -127,7 +128,7 @@ async function fetchAwardGroup(
         await run.problem(`(${recordType}) HTTP ${res.status} on page ${page}`);
         break;
       }
-      data = parseUSASpendingPage(await res.json());
+      data = parseUSASpendingPage(await readJson(res, MAX_JSON_BYTES));
     } catch (err) {
       await run.problem(`(${recordType}) fetch error on page ${page} — ${err}`);
       break;
