@@ -55,7 +55,27 @@ export async function verifyLegistarClient(clientId: string, ctx: FetchCtx = {})
   }
 }
 
-export async function extractPdfText(url: string, ctx: FetchCtx = {}): Promise<string | null> {
+export interface PdfRead {
+  text: string;
+  /** Pages in the document, when the parser says. */
+  numpages: number | null;
+  pagesRead: number;
+  /** The text was cut to `maxChars`. */
+  textTruncated: boolean;
+}
+
+/**
+ * Fetch a PDF and extract its text, up to `maxPages` pages and `maxChars`
+ * characters, and say whether it stopped short. Null on any failure or an
+ * empty text layer. Not exported from the package entry point.
+ */
+export async function readPdfText(
+  url: string,
+  ctx: FetchCtx,
+  opts: { maxPages?: number; maxChars?: number } = {}
+): Promise<PdfRead | null> {
+  const maxPages = opts.maxPages ?? 10;
+  const maxChars = opts.maxChars ?? 8_000;
   try {
     const res = await ctxFetch(ctx)(url, {
       headers: { "User-Agent": ctxUserAgent(ctx) },
@@ -68,12 +88,25 @@ export async function extractPdfText(url: string, ctx: FetchCtx = {}): Promise<s
     const pdfParse = require("pdf-parse") as (
       b: Buffer,
       o?: { max?: number }
-    ) => Promise<{ text: string }>;
-    const result = await pdfParse(buf, { max: 10 }); // cap at 10 pages
-    return result.text?.slice(0, 8_000) || null; // keep within token budget
+    ) => Promise<{ text: string; numpages?: number }>;
+    const result = await pdfParse(buf, { max: maxPages });
+    const text = result.text ?? "";
+    if (!text) return null;
+    const numpages = typeof result.numpages === "number" ? result.numpages : null;
+    return {
+      text: text.slice(0, maxChars),
+      numpages,
+      pagesRead: numpages === null ? maxPages : Math.min(numpages, maxPages),
+      textTruncated: text.length > maxChars,
+    };
   } catch {
     return null;
   }
+}
+
+export async function extractPdfText(url: string, ctx: FetchCtx = {}): Promise<string | null> {
+  // 10 pages / 8,000 characters keeps a Legistar attachment within a token budget.
+  return (await readPdfText(url, ctx))?.text || null;
 }
 
 const EVENTS_PAGE = 50;
