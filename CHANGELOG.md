@@ -5,6 +5,8 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
 ### Upgrading
 - **Your sink may now be called more than once per run, and not at all when there is nothing to save.**
   Before, `save` got every record in one call, and an empty one when a run found nothing. If your sink
