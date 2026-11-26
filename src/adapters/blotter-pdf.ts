@@ -19,6 +19,7 @@ import type {
 import { robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
 import { observed } from "../telemetry.js";
+import { saveRecords } from "../sink.js";
 import { createRun } from "../outcome.js";
 import { parsePdf } from "../pdf.js";
 import { readBytes, MAX_PDF_BYTES } from "../body.js";
@@ -160,7 +161,7 @@ async function runPdfBlotter(
 
   const records = pdfIncidentRecords(incidents, { url, locality, source, since: meta.since });
 
-  const result = await ctx.sink.save(records);
+  const result = await saveRecords(ctx, run, records);
   await ctx.logger?.log(`[${locality.name}] blotter_pdf: +${result.inserted} incidents from ${url}`);
   return run.done(result, records.length);
 }

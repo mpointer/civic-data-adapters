@@ -6,10 +6,26 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
 ## [Unreleased]
 
 ### Upgrading
+- **Your sink may now be called more than once per run, and not at all when there is nothing to save.**
+  Before, `save` got every record in one call, and an empty one when a run found nothing. If your sink
+  assumed one call per run (for example, one transaction per `save`), batch boundaries are now every 500
+  records; set `sinkBatchSize` to change that. Run `checkSinkContract` against it. A sink that returns
+  nothing from `save`, or throws on a duplicate key, now fails loudly instead of being half-counted.
+- **A run can now report `partial` for record-level reasons** it used to hide: records dropped for a
+  missing required field, an unreadable date cleared, a non-http(s) url cleared.
 - **`AdapterResult` gains `stats`** (`durationMs`, `requests`, `retries`, `llmCalls`). Code that only reads
   existing fields is unaffected; code that constructs an `AdapterResult` itself must add it.
 
 ### Added
+- **A written sink contract, enforced at the boundary.** `CivicRecordSink` now documents what it must do
+  (idempotent on `dedupeKey`, return `{ inserted, skipped }`, throw on failure) and what it will be given.
+  The library now sends records in batches (`ctx.sinkBatchSize`, default 500), never calls `save` with an
+  empty list, drops records missing a required field, keeps one record per `dedupeKey`, clears a date that
+  is not a real calendar date and a url that is not http(s) (each reported as a problem), and rejects a
+  sink reply that is not valid counts. A failing sink surfaces as a `CivicSinkError` with `saved`,
+  `unsaved`, `batch` and `batches`. `SaveResult` gains optional `updated` for upserting sinks, and
+  `AdapterResult.updated` passes it through. `checkSinkContract(sink)` verifies an implementation. New
+  `sink.save` event.
 - **Structured events: `onEvent`.** A context hook that receives `run.start`, `run.end`, `run.error`,
   `problem`, `http.attempt` and `http.retry` events, tagged with a per-run `runId`, provider, locality and
   source id. Events never carry a query string, request body, record or LLM text. The handler cannot

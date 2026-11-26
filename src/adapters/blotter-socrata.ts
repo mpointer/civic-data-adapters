@@ -19,6 +19,7 @@ import type {
 } from "../types.js";
 import { httpFetch } from "../http.js";
 import { observed } from "../telemetry.js";
+import { saveRecords } from "../sink.js";
 import { createRun } from "../outcome.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 import { sanitizeCivicDate } from "../dates.js";
@@ -201,7 +202,7 @@ async function runSocrataRecords(
   }
 
   if (malformed > 0) await run.problem(`skipped ${malformed} malformed row(s)`);
-  const result = await ctx.sink.save(records);
+  const result = await saveRecords(ctx, run, records);
   await ctx.logger?.log(
     `[${locality.name}] socrata ${recordType}: +${result.inserted} records, ${result.skipped} skipped`
   );

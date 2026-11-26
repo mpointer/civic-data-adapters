@@ -176,10 +176,33 @@ export interface CivicRecord {
   raw?: unknown;
 }
 
-/** Where records go. Return counts so adapters can report inserted/skipped.
- *  Implementations decide dedupe semantics (dedupeKey makes upserts easy). */
+/** What a sink reports for one `save` call. */
+export interface SaveResult {
+  /** Records that were new. */
+  inserted: number;
+  /** Records already stored (same `dedupeKey`) and left alone. */
+  skipped: number;
+  /** Records already stored and overwritten, for a sink that upserts. Omit if you never update. */
+  updated?: number;
+}
+
+/**
+ * Where records go. The contract:
+ *  - **Idempotent on `dedupeKey`.** Saving a record whose key is already stored must not throw and
+ *    must not create a second row: leave it (count it in `skipped`) or overwrite it (count it in
+ *    `updated`). Re-running a source is routine, so repeats are the common case, not an error.
+ *  - **Return counts.** `{ inserted, skipped }` as non-negative integers, with `updated` if you upsert.
+ *    Returning nothing is an error.
+ *  - **Batches.** You are called with at most `sinkBatchSize` records (default 500) at a time, never
+ *    with an empty list, and each record has a non-empty `dedupeKey`, `title`, `provider`, `type`,
+ *    `localityName` and `sourceId`, at most one record per `dedupeKey` per run, a real calendar `date`
+ *    or null, and an http(s) `url` or null.
+ *  - **Failure.** Throw. An earlier batch may already be stored; a rerun is safe because of the first
+ *    rule. The error that reaches the caller is a `CivicSinkError` saying how far it got.
+ *  - Use `checkSinkContract(sink)` in your tests to verify an implementation.
+ */
 export interface CivicRecordSink {
-  save(records: CivicRecord[]): Promise<{ inserted: number; skipped: number }>;
+  save(records: CivicRecord[]): Promise<SaveResult>;
 }
 
 export interface CivicLogger {
@@ -216,6 +239,8 @@ export interface AdapterContext {
   http?: HttpPolicy;
   /** Structured events for metrics and tracing; see CivicEventHandler. */
   onEvent?: CivicEventHandler;
+  /** Most records handed to `sink.save` in one call (default 500, at most 5000). */
+  sinkBatchSize?: number;
   /** Skip robots.txt checking (it is ON by default; fail-open on errors). */
   skipRobotsCheck?: boolean;
   /**
@@ -262,6 +287,8 @@ export interface RunStats {
 export interface AdapterResult {
   inserted: number;
   skipped: number;
+  /** Records the sink overwrote; present only for a sink that reports it. */
+  updated?: number;
   status: AdapterStatus;
   /** Human-readable, one per distinct problem. Empty when `status` is "ok". */
   problems: string[];
@@ -300,7 +327,21 @@ export type CivicEventPayload =
       /** 1 for the first try. */
       attempt: number;
     }
-  | { type: "http.retry"; host: string; reason: string; waitMs: number; attempt: number };
+  | { type: "http.retry"; host: string; reason: string; waitMs: number; attempt: number }
+  | {
+      type: "sink.save";
+      /** 1-based position of this `sink.save` call within the run's save. */
+      batch: number;
+      batches: number;
+      /** Records in this batch. */
+      records: number;
+      inserted: number;
+      skipped: number;
+      updated?: number;
+      /** Repeated keys dropped from the whole save before batching (the same on every batch). */
+      duplicates: number;
+      durationMs: number;
+    };
 
 /** An event plus when it happened and which run it belongs to (absent outside a run, e.g. discovery). */
 export type CivicEvent = CivicEventPayload & {
@@ -387,7 +428,7 @@ export const consoleLogger: CivicLogger = {
 export class MemorySink implements CivicRecordSink {
   readonly records = new Map<string, CivicRecord>();
 
-  async save(records: CivicRecord[]): Promise<{ inserted: number; skipped: number }> {
+  async save(records: CivicRecord[]): Promise<SaveResult> {
     let inserted = 0;
     let skipped = 0;
     for (const r of records) {

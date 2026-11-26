@@ -1,7 +1,7 @@
 // How an adapter run reports what happened. Callers used to get
 // `{ inserted: 0, skipped: 0 }` for a dead URL, a robots.txt refusal, a bad
 // config and a quiet day alike; `status` and `problems` tell them apart.
-import type { AdapterContext, AdapterResult, RunStats } from "./types.js";
+import type { AdapterContext, AdapterResult, RunStats, SaveResult } from "./types.js";
 import { emit, scrub } from "./telemetry.js";
 
 /** Placeholder: `observed` replaces it with the run's real counters. */
@@ -22,7 +22,7 @@ export interface Run {
    * a failure). Problems and some records: "partial". Problems and no records:
    * "failed".
    */
-  done(saved: { inserted: number; skipped: number }, found: number): AdapterResult;
+  done(saved: SaveResult, found: number): AdapterResult;
 }
 
 /** `prefix` is what logged messages start with, e.g. `[Pittsburgh] socrata:`. */
@@ -46,7 +46,14 @@ export function createRun(ctx: Pick<AdapterContext, "logger" | "onEvent">, prefi
     },
     done(saved, found) {
       const status = problems.length === 0 ? "ok" : found > 0 ? "partial" : "failed";
-      return { inserted: saved.inserted, skipped: saved.skipped, status, problems: [...problems], stats: NO_STATS };
+      return {
+        inserted: saved.inserted,
+        skipped: saved.skipped,
+        ...(saved.updated !== undefined ? { updated: saved.updated } : {}),
+        status,
+        problems: [...problems],
+        stats: NO_STATS,
+      };
     },
   };
 }

@@ -18,6 +18,7 @@ import type {
 import { robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
 import { observed } from "../telemetry.js";
+import { saveRecords } from "../sink.js";
 import { createRun } from "../outcome.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 import { parsePropublicaPage, type PropublicaPage } from "../responses.js";
@@ -221,7 +222,7 @@ async function runNonprofitExplorer(
   if (hitCap) {
     await run.problem(`hit page cap (${MAX_PAGES}/${totalPages}) — results may be incomplete`);
   }
-  const result = await ctx.sink.save(records);
+  const result = await saveRecords(ctx, run, records);
   await ctx.logger?.log(
     `[${locality.name}] nonprofit_explorer: +${result.inserted} records, ${result.skipped} skipped`
   );

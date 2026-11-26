@@ -11,6 +11,7 @@ import type {
 } from "../types.js";
 import { httpFetch, type HttpCtx } from "../http.js";
 import { observed } from "../telemetry.js";
+import { saveRecords } from "../sink.js";
 import { createRun } from "../outcome.js";
 import { parsePdf, PdfParserMissingError } from "../pdf.js";
 import { mapLimit } from "../concurrency.js";
@@ -324,5 +325,5 @@ async function runLegistar(
       `${enrichFailures} agenda item(s) have no LLM/PDF summary because the attachment, PDF or summarize call failed`
     );
   }
-  return run.done(await ctx.sink.save(records), records.length);
+  return run.done(await saveRecords(ctx, run, records), records.length);
 }

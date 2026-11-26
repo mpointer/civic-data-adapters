@@ -26,6 +26,7 @@ import type {
 import { robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
 import { observed } from "../telemetry.js";
+import { saveRecords } from "../sink.js";
 import { createRun } from "../outcome.js";
 import { readText, readJson, MAX_HTML_BYTES, MAX_JSON_BYTES } from "../body.js";
 
@@ -366,7 +367,7 @@ async function runCrimewatchBlotter(
     });
   }
 
-  const result = await ctx.sink.save(records);
+  const result = await saveRecords(ctx, run, records);
   await ctx.logger?.log(
     `[${locality.name}] blotter_crimewatch: +${result.inserted} records, ${result.skipped} skipped from ${url}`
   );

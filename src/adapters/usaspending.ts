@@ -19,6 +19,7 @@ import { httpFetch } from "../http.js";
 import { parseUSASpendingPage, type USASpendingPage } from "../responses.js";
 import { sanitizeCivicDate } from "../dates.js";
 import { observed } from "../telemetry.js";
+import { saveRecords } from "../sink.js";
 import { createRun, type Run } from "../outcome.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 
@@ -246,7 +247,7 @@ async function runUSASpending(
     );
   }
 
-  const result = await ctx.sink.save(records);
+  const result = await saveRecords(ctx, run, records);
   await ctx.logger?.log(
     `[${locality.name}] usaspending: +${result.inserted} records, ${result.skipped} skipped`
   );
