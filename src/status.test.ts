@@ -48,7 +48,7 @@ describe("blotter_html", () => {
 
   it("ok with data", async () => {
     const { ctx } = ctxWith(() => new Response(rows(3)));
-    expect(await runAdapter(locality, source, meta, ctx)).toEqual({ inserted: 3, skipped: 0, status: "ok", problems: [] });
+    expect(await runAdapter(locality, source, meta, ctx)).toMatchObject({ inserted: 3, skipped: 0, status: "ok", problems: [] });
   });
   it("failed on HTTP error, network error and a page with no table", async () => {
     for (const make of [() => new Response("", { status: 503 }), () => { throw new Error("ECONNRESET"); }, () => new Response("<p>JS app</p>")]) {
@@ -89,7 +89,7 @@ describe("socrata", () => {
 
   it("ok when the dataset is simply empty", async () => {
     const { ctx } = ctxWith(() => json([]));
-    expect(await runAdapter(locality, source, meta, ctx)).toEqual({ inserted: 0, skipped: 0, status: "ok", problems: [] });
+    expect(await runAdapter(locality, source, meta, ctx)).toMatchObject({ inserted: 0, skipped: 0, status: "ok", problems: [] });
   });
   it("failed on a bad config and on an error on the first page", async () => {
     const { ctx } = ctxWith(() => json({ message: "nope" }, 500));
@@ -167,7 +167,7 @@ describe("nonprofit_explorer", () => {
     expect((await runAdapter({ name: "Exampleville" }, source, meta, ctxWith(() => json({})).ctx)).status).toBe("failed");
     expect((await runAdapter(locality, source, meta, ctxWith(() => json({ error: "x" })).ctx)).status).toBe("failed");
     const empty = ctxWith(() => json({ total_results: 0, num_pages: 1, cur_page: 0, organizations: [] }));
-    expect(await runAdapter(locality, source, meta, empty.ctx)).toEqual({ inserted: 0, skipped: 0, status: "ok", problems: [] });
+    expect(await runAdapter(locality, source, meta, empty.ctx)).toMatchObject({ inserted: 0, skipped: 0, status: "ok", problems: [] });
   });
   it("skipped on a robots refusal", async () => {
     const { ctx } = ctxWith(() => json({}), { skipRobotsCheck: false, robotsCheck: async () => false });

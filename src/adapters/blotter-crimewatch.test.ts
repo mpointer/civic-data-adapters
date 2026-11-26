@@ -115,6 +115,6 @@ describe("ingestCrimewatchBlotter", () => {
     expect(noUrl).toMatchObject({ status: "failed", problems: ["no url in source metadata"] });
     expect(log).toHaveBeenCalledWith(expect.stringContaining("no url"), "warn");
     const empty = await ingestCrimewatchBlotter(locality, { id: 1 }, { provider: "blotter_crimewatch", url: URL1 }, ctx);
-    expect(empty).toEqual({ inserted: 0, skipped: 0, status: "ok", problems: [] });
+    expect(empty).toMatchObject({ inserted: 0, skipped: 0, status: "ok", problems: [] });
   });
 });

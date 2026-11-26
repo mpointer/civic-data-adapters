@@ -5,6 +5,16 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
 
 ## [Unreleased]
 
+### Upgrading
+- **`AdapterResult` gains `stats`** (`durationMs`, `requests`, `retries`, `llmCalls`). Code that only reads
+  existing fields is unaffected; code that constructs an `AdapterResult` itself must add it.
+
+### Added
+- **Structured events: `onEvent`.** A context hook that receives `run.start`, `run.end`, `run.error`,
+  `problem`, `http.attempt` and `http.retry` events, tagged with a per-run `runId`, provider, locality and
+  source id. Events never carry a query string, request body, record or LLM text. The handler cannot
+  break a run. See the README.
+
 ### Changed
 - **Outbound requests retry, with backoff, and honor `Retry-After`.** One layer (`src/http.ts`) now makes
   every request: a per-attempt deadline, the User-Agent, vetted redirects, and up to 3 retries on 429,

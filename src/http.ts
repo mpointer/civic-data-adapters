@@ -4,10 +4,11 @@
 // treated it as a dead source. Not exported from the package entry point.
 import type { AdapterContext, HttpPolicy } from "./types.js";
 import { FETCH_TIMEOUT_MS, ctxUserAgent, safeFetch, type SafeFetchOptions } from "./internal.js";
+import { countRequest, emit, scrub } from "./telemetry.js";
 
 export type HttpCtx = Pick<
   AdapterContext,
-  "fetch" | "userAgent" | "skipRobotsCheck" | "robotsCheck" | "http" | "logger"
+  "fetch" | "userAgent" | "skipRobotsCheck" | "robotsCheck" | "http" | "logger" | "onEvent"
 >;
 
 export interface HttpOptions extends SafeFetchOptions {
@@ -90,11 +91,13 @@ export async function httpFetch(
   const repeatable = method === "GET" || method === "HEAD" || opts.idempotent === true;
   const maxRetries = repeatable ? retries : 0;
 
-  const host = (() => {
+  // Host and path only: a query string can carry an API key.
+  const { host, path } = (() => {
     try {
-      return new URL(url).hostname;
+      const u = new URL(url);
+      return { host: u.hostname, path: u.pathname };
     } catch {
-      return url;
+      return { host: "(invalid url)", path: "" };
     }
   })();
   const headers = headersWithUserAgent(init.headers, ctxUserAgent(ctx));
@@ -106,8 +109,10 @@ export async function httpFetch(
     const ceiling = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);
     return Math.round(ceiling / 2 + (random() * ceiling) / 2);
   };
-  const note = (reason: string, ms: number, attempt: number) =>
-    ctx.logger?.log(`http: ${host} ${reason}; retrying in ${ms} ms (${attempt + 1}/${maxRetries})`, "info");
+  const note = (reason: string, ms: number, attempt: number) => {
+    emit(ctx, { type: "http.retry", host, reason, waitMs: ms, attempt: attempt + 1 });
+    return ctx.logger?.log(`http: ${host} ${reason}; retrying in ${ms} ms (${attempt + 1}/${maxRetries})`, "info");
+  };
 
   for (let attempt = 0; ; attempt++) {
     const closedFor = (hostGate.get(host) ?? 0) - now();
@@ -116,9 +121,20 @@ export async function httpFetch(
     const timeout = AbortSignal.timeout(timeoutMs);
     const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
     let res: Response;
+    countRequest(attempt > 0);
+    const startedAt = now();
     try {
       res = await safeFetch(ctx, url, { ...init, headers, signal }, opts);
     } catch (err) {
+      emit(ctx, {
+        type: "http.attempt",
+        host,
+        method,
+        path,
+        error: scrub(err instanceof Error ? err.message : String(err)),
+        durationMs: now() - startedAt,
+        attempt: attempt + 1,
+      });
       if (attempt >= maxRetries || !isTransient(err)) throw err;
       const wait = backoff(attempt);
       await note((err as Error).name === "TimeoutError" ? "timed out" : "network error", wait, attempt);
@@ -126,6 +142,7 @@ export async function httpFetch(
       continue;
     }
 
+    emit(ctx, { type: "http.attempt", host, method, path, status: res.status, durationMs: now() - startedAt, attempt: attempt + 1 });
     if (!RETRY_STATUSES.has(res.status) || attempt >= maxRetries) return res;
 
     const told = retryAfterMs(res, now());

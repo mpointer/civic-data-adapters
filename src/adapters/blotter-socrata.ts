@@ -18,6 +18,7 @@ import type {
   CivicRecordType,
 } from "../types.js";
 import { httpFetch } from "../http.js";
+import { observed } from "../telemetry.js";
 import { createRun } from "../outcome.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 import { sanitizeCivicDate } from "../dates.js";
@@ -47,7 +48,16 @@ function pickField(row: SocrataRow, candidates: string[]): string {
 // missing date before the sanitizeCivicDate fix shipped would self-correct
 // on later runs. Sinks that want that behavior should treat a dedupeKey
 // match as an update rather than a skip.
-export async function ingestSocrataRecords(
+export function ingestSocrataRecords(
+  locality: Locality,
+  source: CivicSource,
+  meta: MetaFor<"socrata">,
+  ctx: AdapterContext
+): Promise<AdapterResult> {
+  return observed(ctx, { provider: "socrata", locality, source }, () => runSocrataRecords(locality, source, meta, ctx));
+}
+
+async function runSocrataRecords(
   locality: Locality,
   source: CivicSource,
   meta: MetaFor<"socrata">,

@@ -18,6 +18,7 @@ import type {
 } from "../types.js";
 import { robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
+import { observed } from "../telemetry.js";
 import { createRun } from "../outcome.js";
 import { parsePdf } from "../pdf.js";
 import { readBytes, MAX_PDF_BYTES } from "../body.js";
@@ -121,7 +122,16 @@ export function pdfIncidentRecords(incidents: ParsedIncident[], opts: PdfRecordO
   return records;
 }
 
-export async function ingestPdfBlotter(
+export function ingestPdfBlotter(
+  locality: Locality,
+  source: CivicSource,
+  meta: MetaFor<"blotter_pdf">,
+  ctx: AdapterContext
+): Promise<AdapterResult> {
+  return observed(ctx, { provider: "blotter_pdf", locality, source }, () => runPdfBlotter(locality, source, meta, ctx));
+}
+
+async function runPdfBlotter(
   locality: Locality,
   source: CivicSource,
   meta: MetaFor<"blotter_pdf">,

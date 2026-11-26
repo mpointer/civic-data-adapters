@@ -17,6 +17,7 @@ import type {
 } from "../types.js";
 import { robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
+import { observed } from "../telemetry.js";
 import { createRun } from "../outcome.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 import { parsePropublicaPage, type PropublicaPage } from "../responses.js";
@@ -88,7 +89,16 @@ function isoSince(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export async function ingestNonprofitExplorer(
+export function ingestNonprofitExplorer(
+  locality: Locality,
+  source: CivicSource,
+  meta: MetaFor<"nonprofit_explorer">,
+  ctx: AdapterContext
+): Promise<AdapterResult> {
+  return observed(ctx, { provider: "nonprofit_explorer", locality, source }, () => runNonprofitExplorer(locality, source, meta, ctx));
+}
+
+async function runNonprofitExplorer(
   locality: Locality,
   source: CivicSource,
   meta: MetaFor<"nonprofit_explorer">,
