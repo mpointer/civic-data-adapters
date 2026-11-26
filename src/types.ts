@@ -186,6 +186,24 @@ export interface CivicLogger {
   log(message: string, level?: "info" | "warn"): void | Promise<void>;
 }
 
+/**
+ * Retry policy for outbound requests. Every field is optional. Requests that
+ * get 429, 502, 503 or 504, or fail with a network error or timeout, are
+ * retried with exponential backoff and jitter, honoring `Retry-After`.
+ */
+export interface HttpPolicy {
+  /** Retries after the first attempt (default 3). 0 turns retrying off. */
+  retries?: number;
+  /** First backoff in ms; doubles each retry (default 500). */
+  baseDelayMs?: number;
+  /** Longest single wait in ms (default 30000). A longer `Retry-After` is not waited out: the response is returned. */
+  maxDelayMs?: number;
+  /** Test seams: replace the clock, the sleeper and the jitter source. */
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+  random?: () => number;
+}
+
 /** Everything an adapter needs from the outside world. */
 export interface AdapterContext {
   sink: CivicRecordSink;
@@ -194,6 +212,8 @@ export interface AdapterContext {
   fetch?: typeof fetch;
   /** User-Agent for outbound requests. Default identifies this package. */
   userAgent?: string;
+  /** Retry and backoff for outbound requests; see HttpPolicy. */
+  http?: HttpPolicy;
   /** Skip robots.txt checking (it is ON by default; fail-open on errors). */
   skipRobotsCheck?: boolean;
   /**
@@ -269,6 +289,7 @@ export interface DiscoveryContext {
   verifyThresholds?: { yes?: number; no?: number };
   fetch?: typeof fetch;
   userAgent?: string;
+  http?: HttpPolicy;
   logger?: CivicLogger;
   skipRobotsCheck?: boolean;
   /** Bring-your-own robots.txt check; see AdapterContext.robotsCheck. */

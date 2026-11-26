@@ -71,7 +71,7 @@ function setup(html: string | Response) {
   const sink = new MemorySink();
   const log = vi.fn();
   const fetchMock = vi.fn(async (_input: unknown) => (typeof html === "string" ? new Response(html) : html));
-  const ctx: AdapterContext = { sink, logger: { log }, fetch: fetchMock as unknown as typeof fetch, skipRobotsCheck: true };
+  const ctx: AdapterContext = { sink, logger: { log }, fetch: fetchMock as unknown as typeof fetch, skipRobotsCheck: true, http: { sleep: async () => {} } };
   return { ctx, sink, log, fetchMock };
 }
 const locality = { name: "Exampleville" };

@@ -15,6 +15,7 @@ function ctxWith(fetchImpl: (url: string, init?: RequestInit) => Response | Prom
     sink,
     logger: { log },
     skipRobotsCheck: true,
+    http: { sleep: async () => {} }, // retries happen, but without waiting
     fetch: vi.fn(async (input: unknown, init?: RequestInit) => fetchImpl(String(input), init)) as unknown as typeof fetch,
     ...extra,
   };
@@ -239,5 +240,39 @@ describe("blotter_crimewatch", () => {
     expect((await runAdapter(locality, source, meta, ctxWith(() => new Response("", { status: 500 })).ctx)).status).toBe("failed");
     const { ctx } = ctxWith(() => new Response("x"), { skipRobotsCheck: false, robotsCheck: async () => false });
     expect((await runAdapter(locality, source, meta, ctx)).status).toBe("skipped");
+  });
+});
+
+describe("retries through the adapters", () => {
+  it("legistar rides out a 429 and a 503", async () => {
+    let n = 0;
+    const { ctx } = ctxWith((url) => {
+      if (url.includes("/EventItems")) return json([]);
+      n++;
+      return n === 1 ? new Response(null, { status: 429, headers: { "retry-after": "1" } }) : n === 2 ? new Response(null, { status: 503 }) : json([]);
+    });
+    expect(await runAdapter(locality, source, { provider: "legistar", clientId: "retry-ok" }, ctx)).toMatchObject({ status: "ok" });
+    expect(n).toBe(3);
+  });
+
+  it("usaspending repeats its read-only POST search", async () => {
+    let n = 0;
+    const { ctx } = ctxWith(() => (++n === 1 ? new Response(null, { status: 503 }) : json({ results: [], page_metadata: { has_next_page: false } })));
+    expect(await runAdapter(locality, source, { provider: "usaspending", awardTypes: "contracts" }, ctx)).toMatchObject({ status: "ok" });
+    expect(n).toBe(2);
+  });
+
+  it("a source that stays down is failed, with the HTTP status, after the retry budget", async () => {
+    const { ctx } = ctxWith(() => new Response(null, { status: 503 }));
+    const r = await runAdapter(locality, source, { provider: "blotter_html", url: "https://pd.example.gov/down" }, ctx);
+    expect(r).toMatchObject({ status: "failed" });
+    expect(r.problems[0]).toContain("HTTP 503");
+    expect((ctx.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(4);
+  });
+
+  it("can be turned off per run", async () => {
+    const { ctx } = ctxWith(() => new Response(null, { status: 503 }), { http: { retries: 0 } });
+    await runAdapter(locality, source, { provider: "blotter_html", url: "https://pd.example.gov/down2" }, ctx);
+    expect((ctx.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(1);
   });
 });

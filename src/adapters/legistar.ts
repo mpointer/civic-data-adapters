@@ -9,7 +9,7 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS, safeFetch } from "../internal.js";
+import { httpFetch, type HttpCtx } from "../http.js";
 import { createRun } from "../outcome.js";
 import { parsePdf, PdfParserMissingError } from "../pdf.js";
 import { mapLimit } from "../concurrency.js";
@@ -27,20 +27,18 @@ If the document does not contain enough information, say so.
 Do not infer or add context not present.
 Write 2-3 sentences as a plain-language explanation for a local resident.`;
 
-type FetchCtx = Pick<AdapterContext, "fetch" | "userAgent">;
+type FetchCtx = HttpCtx;
 
 // Returns the parsed body untyped; callers validate it with ../responses.ts.
 async function legistarGet(clientId: string, path: string, ctx: FetchCtx): Promise<unknown> {
-  const res = await ctxFetch(ctx)(
+  const res = await httpFetch(
+    ctx,
     // Granicus documents the Legistar Web API at webapi.legistar.com/v1/
     // with the client name as the first path segment. The {client}
     // .legistar.com subdomain serves the human-facing InSite portal and
     // 404s API paths (confirmed against a live client in the first smoke).
     `https://webapi.legistar.com/v1/${encodeURIComponent(clientId)}/${path}`,
-    {
-      headers: { Accept: "application/json", "User-Agent": ctxUserAgent(ctx) },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    }
+    { headers: { Accept: "application/json" } }
   );
   if (!res.ok) throw new Error(`Legistar ${clientId} ${path} → ${res.status}`);
   return readJson(res, MAX_JSON_BYTES);
@@ -77,10 +75,7 @@ export async function readPdfText(
   const maxPages = opts.maxPages ?? 10;
   const maxChars = opts.maxChars ?? 8_000;
   try {
-    const res = await safeFetch(ctx, url, {
-      headers: { "User-Agent": ctxUserAgent(ctx) },
-      signal: AbortSignal.timeout(30_000),
-    });
+    const res = await httpFetch(ctx, url);
     if (!res.ok) return null;
     const result = await parsePdf(await readBytes(res, MAX_PDF_BYTES), { maxPages });
     const text = result.text;

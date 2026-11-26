@@ -15,7 +15,7 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent } from "../internal.js";
+import { httpFetch } from "../http.js";
 import { parseUSASpendingPage, type USASpendingPage } from "../responses.js";
 import { sanitizeCivicDate } from "../dates.js";
 import { createRun, type Run } from "../outcome.js";
@@ -85,7 +85,6 @@ async function fetchAwardGroup(
   let hitCap = false;
   const startedAt = Date.now();
   const records: CivicRecord[] = [];
-  const fetchImpl = ctxFetch(ctx);
 
   while (true) {
     if (page > MAX_PAGES) {
@@ -118,12 +117,12 @@ async function fetchAwardGroup(
 
     let data: USASpendingPage | null;
     try {
-      const res = await fetchImpl(BASE_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": ctxUserAgent(ctx) },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
+      const res = await httpFetch(
+        ctx,
+        BASE_URL,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+        { timeoutMs: FETCH_TIMEOUT_MS, idempotent: true } // a read-only search, safe to repeat
+      );
       if (!res.ok) {
         await run.problem(`(${recordType}) HTTP ${res.status} on page ${page}`);
         break;

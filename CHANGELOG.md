@@ -5,6 +5,16 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
 
 ## [Unreleased]
 
+### Changed
+- **Outbound requests retry, with backoff, and honor `Retry-After`.** One layer (`src/http.ts`) now makes
+  every request: a per-attempt deadline, the User-Agent, vetted redirects, and up to 3 retries on 429,
+  502, 503, 504, network errors and timeouts, with exponential backoff and jitter. A 429 holds back every
+  other request to that host. Before, a single 503 or 429 failed or truncated a run; since 0.6.0 made
+  Legistar run requests in parallel, that was more likely. A source that is still down after the retries
+  is `failed` with its HTTP status, as before, but takes a few seconds longer to say so (about 4 s of
+  backoff). Set `http: { retries: 0 }` on the context to restore the old behavior. `Retry-After` longer
+  than 30 s is not waited out. Discovery probes do not retry. New context field: `http` (`HttpPolicy`).
+
 ## [0.6.0] - 2026-10-29
 
 ### Upgrading
