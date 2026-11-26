@@ -118,7 +118,7 @@ describe("ingestLegistar", () => {
     const { ctx, sink } = setup(fetchMock, { summarize });
     await ingestLegistar(locality, source, { provider: "legistar", clientId: "example" }, ctx);
     expect(summarize).toHaveBeenCalledTimes(1);
-    expect(summarize).toHaveBeenCalledWith(expect.any(String), "Rezoning 12 Main St. Action: Adopted");
+    expect(summarize).toHaveBeenCalledWith(expect.any(String), "Rezoning 12 Main St. Action: Adopted", expect.objectContaining({ purpose: "summarize_agenda_item" }));
     expect([...sink.records.values()][0]?.summary).toBe("Council rezoned a lot.");
   });
 

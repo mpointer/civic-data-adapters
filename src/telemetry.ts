@@ -61,6 +61,11 @@ export function countRequest(isRetry: boolean): void {
   if (isRetry) run.retries++;
 }
 
+/** How many LLM calls the current run has made so far (0 outside a run). */
+export function llmCallsSoFar(): number {
+  return store.getStore()?.llmCalls ?? 0;
+}
+
 /** Count one call to the `summarize` callback against the current run, if any. */
 export function countLlmCall(): void {
   const run = store.getStore();
