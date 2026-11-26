@@ -10,6 +10,7 @@ import type {
   CivicRecord,
 } from "../types.js";
 import { httpFetch, type HttpCtx } from "../http.js";
+import { observed } from "../telemetry.js";
 import { createRun } from "../outcome.js";
 import { parsePdf, PdfParserMissingError } from "../pdf.js";
 import { mapLimit } from "../concurrency.js";
@@ -113,7 +114,16 @@ type EventRow = NonNullable<ReturnType<typeof parseLegistarEvents>>["rows"][numb
 // when it is not), and hands records to ctx.sink. Agenda reads and per-item
 // attachment/PDF/summarize work run with bounded concurrency
 // (meta.concurrency); records keep event order.
-export async function ingestLegistar(
+export function ingestLegistar(
+  locality: Locality,
+  source: CivicSource,
+  meta: MetaFor<"legistar">,
+  ctx: AdapterContext
+): Promise<AdapterResult> {
+  return observed(ctx, { provider: "legistar", locality, source }, () => runLegistar(locality, source, meta, ctx));
+}
+
+async function runLegistar(
   locality: Locality,
   source: CivicSource,
   meta: MetaFor<"legistar">,

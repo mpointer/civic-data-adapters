@@ -15,6 +15,7 @@ import type {
 import { robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
 import { contentKey } from "../dedupe.js";
+import { observed } from "../telemetry.js";
 import { createRun } from "../outcome.js";
 import { parseHtmlTables } from "../html.js";
 import { readText, MAX_HTML_BYTES } from "../body.js";
@@ -101,7 +102,16 @@ export function parseBlotterHtml(html: string, overrides: ColOverrides = {}): Bl
   return extractRowsFromTable(bestTable, overrides);
 }
 
-export async function ingestHtmlBlotter(
+export function ingestHtmlBlotter(
+  locality: Locality,
+  source: CivicSource,
+  meta: MetaFor<"blotter_html">,
+  ctx: AdapterContext
+): Promise<AdapterResult> {
+  return observed(ctx, { provider: "blotter_html", locality, source }, () => runHtmlBlotter(locality, source, meta, ctx));
+}
+
+async function runHtmlBlotter(
   locality: Locality,
   source: CivicSource,
   meta: MetaFor<"blotter_html">,

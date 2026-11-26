@@ -18,6 +18,7 @@ import type {
 import { httpFetch } from "../http.js";
 import { parseUSASpendingPage, type USASpendingPage } from "../responses.js";
 import { sanitizeCivicDate } from "../dates.js";
+import { observed } from "../telemetry.js";
 import { createRun, type Run } from "../outcome.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 
@@ -193,7 +194,16 @@ async function fetchAwardGroup(
   return records;
 }
 
-export async function ingestUSASpending(
+export function ingestUSASpending(
+  locality: Locality,
+  source: CivicSource,
+  meta: MetaFor<"usaspending">,
+  ctx: AdapterContext
+): Promise<AdapterResult> {
+  return observed(ctx, { provider: "usaspending", locality, source }, () => runUSASpending(locality, source, meta, ctx));
+}
+
+async function runUSASpending(
   locality: Locality,
   source: CivicSource,
   meta: MetaFor<"usaspending">,

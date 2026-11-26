@@ -25,6 +25,7 @@ import type {
 } from "../types.js";
 import { robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
+import { observed } from "../telemetry.js";
 import { createRun } from "../outcome.js";
 import { readText, readJson, MAX_HTML_BYTES, MAX_JSON_BYTES } from "../body.js";
 
@@ -311,7 +312,16 @@ async function fetchCrimewatch(
   return { incidents, problems, robotsBlocked: false };
 }
 
-export async function ingestCrimewatchBlotter(
+export function ingestCrimewatchBlotter(
+  locality: Locality,
+  source: CivicSource,
+  meta: MetaFor<"blotter_crimewatch">,
+  ctx: AdapterContext
+): Promise<AdapterResult> {
+  return observed(ctx, { provider: "blotter_crimewatch", locality, source }, () => runCrimewatchBlotter(locality, source, meta, ctx));
+}
+
+async function runCrimewatchBlotter(
   locality: Locality,
   source: CivicSource,
   meta: MetaFor<"blotter_crimewatch">,

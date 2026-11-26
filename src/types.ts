@@ -214,6 +214,8 @@ export interface AdapterContext {
   userAgent?: string;
   /** Retry and backoff for outbound requests; see HttpPolicy. */
   http?: HttpPolicy;
+  /** Structured events for metrics and tracing; see CivicEventHandler. */
+  onEvent?: CivicEventHandler;
   /** Skip robots.txt checking (it is ON by default; fail-open on errors). */
   skipRobotsCheck?: boolean;
   /**
@@ -246,13 +248,76 @@ export interface AdapterContext {
  */
 export type AdapterStatus = "ok" | "partial" | "failed" | "skipped";
 
+/** What a run cost, counted whether or not anyone listens for events. */
+export interface RunStats {
+  durationMs: number;
+  /** HTTP attempts, retries included. */
+  requests: number;
+  /** Attempts that were retries. */
+  retries: number;
+  /** Calls to the `summarize` callback. */
+  llmCalls: number;
+}
+
 export interface AdapterResult {
   inserted: number;
   skipped: number;
   status: AdapterStatus;
   /** Human-readable, one per distinct problem. Empty when `status` is "ok". */
   problems: string[];
+  stats: RunStats;
 }
+
+/**
+ * Structured events for metrics, traces and logs; see `onEvent`. They carry
+ * hosts, paths, statuses, counts and timings. They never carry a query string,
+ * a request body, a record, or LLM input or output.
+ */
+export type CivicEventPayload =
+  | { type: "run.start" }
+  | {
+      type: "run.end";
+      status: AdapterStatus;
+      inserted: number;
+      skipped: number;
+      /** How many problems the run recorded (their text is in `problem` events and the result). */
+      problems: number;
+      stats: RunStats;
+    }
+  /** A sink error (or other bug) ended the run by throwing. */
+  | { type: "run.error"; message: string }
+  | { type: "problem"; message: string }
+  | {
+      type: "http.attempt";
+      host: string;
+      method: string;
+      /** The path only: never the query string. */
+      path: string;
+      /** Absent when the attempt failed before a response. */
+      status?: number;
+      error?: string;
+      durationMs: number;
+      /** 1 for the first try. */
+      attempt: number;
+    }
+  | { type: "http.retry"; host: string; reason: string; waitMs: number; attempt: number };
+
+/** An event plus when it happened and which run it belongs to (absent outside a run, e.g. discovery). */
+export type CivicEvent = CivicEventPayload & {
+  /** Milliseconds since the epoch. */
+  ts: number;
+  runId?: string;
+  provider?: string;
+  locality?: string;
+  sourceId?: string | number;
+};
+
+/**
+ * Receives structured events. Called synchronously and never awaited; an
+ * exception or a rejected promise from it is swallowed so telemetry cannot
+ * break a run. Keep it fast: hand off to your logger, metrics or tracer.
+ */
+export type CivicEventHandler = (event: CivicEvent) => void | Promise<void>;
 
 /**
  * Answer a yes/no `question` about `text` with the probability (0–1) that the
@@ -290,6 +355,7 @@ export interface DiscoveryContext {
   fetch?: typeof fetch;
   userAgent?: string;
   http?: HttpPolicy;
+  onEvent?: CivicEventHandler;
   logger?: CivicLogger;
   skipRobotsCheck?: boolean;
   /** Bring-your-own robots.txt check; see AdapterContext.robotsCheck. */

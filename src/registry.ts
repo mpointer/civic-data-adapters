@@ -17,6 +17,7 @@ import { ingestCrimewatchBlotter } from "./adapters/blotter-crimewatch.js";
 import { ingestUSASpending } from "./adapters/usaspending.js";
 import { ingestNonprofitExplorer } from "./adapters/nonprofit.js";
 import { createRun } from "./outcome.js";
+import { observed } from "./telemetry.js";
 
 export { sanitizeCivicDate } from "./dates.js";
 
@@ -26,7 +27,7 @@ async function stub(provider: string, locality: Locality, ctx: AdapterContext): 
   );
 }
 
-export async function runAdapter(
+export function runAdapter(
   locality: Locality,
   source: CivicSource,
   meta: CivicAdapterMeta,
@@ -37,7 +38,17 @@ export async function runAdapter(
   const resolved = (
     (meta as { provider?: string }).provider === undefined ? { ...meta, provider: "legistar" } : meta
   ) as CivicAdapterMeta;
+  return observed(ctx, { provider: String(resolved.provider), locality, source }, () =>
+    dispatch(locality, source, resolved, ctx)
+  );
+}
 
+async function dispatch(
+  locality: Locality,
+  source: CivicSource,
+  resolved: CivicAdapterMeta,
+  ctx: AdapterContext
+): Promise<AdapterResult> {
   switch (resolved.provider) {
     case "legistar": {
       const result = await ingestLegistar(locality, source, resolved, ctx);

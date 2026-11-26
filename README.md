@@ -84,6 +84,33 @@ const ctx = { sink, http: { retries: 5, baseDelayMs: 1000, maxDelayMs: 60_000 } 
 
 Discovery probes do not retry, so a dead candidate URL fails at once. Retrying covers the request and its headers, not a connection that drops while the body is being read. Do not lower `maxDelayMs` below what a host's `Retry-After` normally is, or you will give up on hosts that are only briefly rate-limiting you.
 
+### Observability
+
+`logger` still gets human-readable lines. For metrics and tracing, pass `onEvent` and get structured events instead of parsing those lines:
+
+```ts
+const ctx = {
+  sink,
+  onEvent(e) {
+    if (e.type === "run.end") metrics.timing("civic.run", e.stats.durationMs, { provider: e.provider, status: e.status });
+    if (e.type === "http.retry") metrics.increment("civic.http.retry", { host: e.host, reason: e.reason });
+    if (e.type === "run.error") log.error({ runId: e.runId, message: e.message });
+  },
+};
+```
+
+| `type` | When | Fields beyond `ts`, `runId`, `provider`, `locality`, `sourceId` |
+| --- | --- | --- |
+| `run.start` / `run.end` | around each `runAdapter` call | `run.end`: `status`, `inserted`, `skipped`, `problems` (count), `stats` |
+| `run.error` | the run threw (your `sink.save`, or a bug) | `message` |
+| `problem` | the run recorded a problem | `message` |
+| `http.attempt` | each request attempt, retries included | `host`, `method`, `path`, `status` or `error`, `durationMs`, `attempt` |
+| `http.retry` | before a retry | `host`, `reason`, `waitMs`, `attempt` |
+
+Every event of one run shares a `runId`, including events from Legistar's parallel workers and from two runs going at once. Discovery emits `http.*` events with no run fields. The result also carries `stats` (`durationMs`, `requests`, `retries`, `llmCalls`), counted whether or not you listen.
+
+Events carry hosts, paths, statuses, counts and timings. They never carry a query string (Socrata filters, CrimeWatch API keys), a request body, a record, or LLM text, and URLs inside messages have their query strings stripped. The handler is called synchronously and never awaited; if it throws or rejects, the error is swallowed so telemetry cannot break a run. Keep it cheap.
+
 ### What the network layer does and does not guard
 
 Page, PDF and Socrata fetches follow redirects themselves, one hop at a time, at most 5. Every hop must be http(s), not `localhost`/`.internal`/`.local`, not a private, loopback or link-local address (including cloud metadata at `169.254.169.254`), must not resolve to one, and must be allowed by robots.txt. A redirect that fails any of that fails the run. URLs that discovery gets from your LLM are vetted the same way before the first request. Response bodies are capped (5 MiB HTML, 25 MiB JSON and PDF).

@@ -1,7 +1,11 @@
 // How an adapter run reports what happened. Callers used to get
 // `{ inserted: 0, skipped: 0 }` for a dead URL, a robots.txt refusal, a bad
 // config and a quiet day alike; `status` and `problems` tell them apart.
-import type { AdapterContext, AdapterResult } from "./types.js";
+import type { AdapterContext, AdapterResult, RunStats } from "./types.js";
+import { emit, scrub } from "./telemetry.js";
+
+/** Placeholder: `observed` replaces it with the run's real counters. */
+const NO_STATS: RunStats = { durationMs: 0, requests: 0, retries: 0, llmCalls: 0 };
 
 export interface Run {
   /** Problems recorded so far (also logged as warnings). */
@@ -22,10 +26,11 @@ export interface Run {
 }
 
 /** `prefix` is what logged messages start with, e.g. `[Pittsburgh] socrata:`. */
-export function createRun(ctx: Pick<AdapterContext, "logger">, prefix: string): Run {
+export function createRun(ctx: Pick<AdapterContext, "logger" | "onEvent">, prefix: string): Run {
   const problems: string[] = [];
   const problem = async (message: string) => {
     problems.push(message);
+    emit(ctx, { type: "problem", message: scrub(message) });
     await ctx.logger?.log(`${prefix} ${message}`, "warn");
   };
   return {
@@ -33,15 +38,15 @@ export function createRun(ctx: Pick<AdapterContext, "logger">, prefix: string): 
     problem,
     async fail(message) {
       await problem(message);
-      return { inserted: 0, skipped: 0, status: "failed", problems: [...problems] };
+      return { inserted: 0, skipped: 0, status: "failed", problems: [...problems], stats: NO_STATS };
     },
     async skip(message) {
       await ctx.logger?.log(`${prefix} ${message}`, "warn");
-      return { inserted: 0, skipped: 0, status: "skipped", problems: [...problems] };
+      return { inserted: 0, skipped: 0, status: "skipped", problems: [...problems], stats: NO_STATS };
     },
     done(saved, found) {
       const status = problems.length === 0 ? "ok" : found > 0 ? "partial" : "failed";
-      return { inserted: saved.inserted, skipped: saved.skipped, status, problems: [...problems] };
+      return { inserted: saved.inserted, skipped: saved.skipped, status, problems: [...problems], stats: NO_STATS };
     },
   };
 }
