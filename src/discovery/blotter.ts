@@ -11,6 +11,7 @@
 import type { Locality, DiscoveryContext, DiscoveredSource } from "../types.js";
 import { assertPublicHttpUrl, robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
+import { callLlm } from "../llm.js";
 import { parseBlotterHtml } from "../adapters/blotter-html.js";
 import { extractIncidents } from "../adapters/blotter-pdf.js";
 import { isCrimewatchUrl, fetchCrimewatchIncidents } from "../adapters/blotter-crimewatch.js";
@@ -126,7 +127,7 @@ Use web search to confirm each URL is real and currently active — do not guess
   const prompt = `City: ${cityName}${locality.state ? `, ${locality.state}` : ""}.
 Find a public incident log / blotter page or PDF for this city's police department, or if none exists, the closest neighboring jurisdiction that covers or borders this area.`;
 
-  const raw = await ctx.generate(systemPrompt, prompt);
+  const raw = await callLlm(ctx, "propose_blotter", ctx.generate, systemPrompt, prompt);
   const candidates = parseCandidateJson(raw, "url").slice(0, MAX_CANDIDATES);
   if (!candidates.length) {
     await ctx.logger?.log(`[${locality.name}] blotter discovery: no candidates proposed`);

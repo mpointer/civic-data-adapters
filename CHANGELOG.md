@@ -17,6 +17,14 @@ a minor bump may change behavior or types; read the **Upgrading** notes below.
   existing fields is unaffected; code that constructs an `AdapterResult` itself must add it.
 
 ### Added
+- **An LLM boundary.** Every call to your `summarize` / `generate` callback now goes through one place that
+  adds a `purpose` and an abort `signal` (third argument; two-argument callbacks still work), a deadline
+  (`llm.timeoutMs`, default 60 s), a per-run call budget (`llm.maxCalls`, default 1000), and an `llm.call`
+  event. The reply may be `{ text, usage }`. The reply is validated (text only), stripped of control and
+  direction-override characters, and summaries are capped at 1,500 characters. The system prompts now state
+  that the document is untrusted. A callback that never answered used to hang a run; a huge Legistar agenda
+  used to make one paid call per item with no ceiling. Behavior change: past 1,000 calls in one run the
+  rest use title text and the run reports `partial`; set `llm: { maxCalls: Infinity }` to lift it.
 - **A written sink contract, enforced at the boundary.** `CivicRecordSink` now documents what it must do
   (idempotent on `dedupeKey`, return `{ inserted, skipped }`, throw on failure) and what it will be given.
   The library now sends records in batches (`ctx.sinkBatchSize`, default 500), never calls `save` with an

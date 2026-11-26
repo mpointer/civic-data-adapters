@@ -14,6 +14,7 @@
 import type { Locality, DiscoveryContext, DiscoveredSource } from "../types.js";
 import { verifyLegistarClient } from "../adapters/legistar.js";
 import { parseCandidateJson, localityCityName } from "./candidates.js";
+import { callLlm } from "../llm.js";
 
 const MAX_CANDIDATES = 4;
 
@@ -35,7 +36,7 @@ Many small towns have no Legistar site at all — if the town's own council does
   const prompt = `City: ${cityName}${locality.state ? `, ${locality.state}` : ""}.
 Find its real Legistar clientId (or its county's, if the town itself has none), confirmed via web search — not guessed.`;
 
-  const raw = await ctx.generate(systemPrompt, prompt);
+  const raw = await callLlm(ctx, "propose_legistar_client", ctx.generate, systemPrompt, prompt);
   const candidates = parseCandidateJson(raw, "clientId").slice(0, MAX_CANDIDATES);
   if (!candidates.length) {
     await ctx.logger?.log(`[${locality.name}] meeting discovery: no candidates proposed`);

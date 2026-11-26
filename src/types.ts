@@ -259,7 +259,9 @@ export interface AdapterContext {
    * parse free-form minutes without it). Bring any LLM; the docs show
    * wiring llm-governance-gateway's runText here, but nothing requires it.
    */
-  summarize?: (systemPrompt: string, text: string) => Promise<string>;
+  summarize?: LlmCallback;
+  /** Budget and deadline for `summarize`; see LlmPolicy. */
+  llm?: LlmPolicy;
 }
 
 /**
@@ -272,6 +274,37 @@ export interface AdapterContext {
  *  - `skipped`: deliberately did not run (robots.txt refusal, provider that is a stub).
  */
 export type AdapterStatus = "ok" | "partial" | "failed" | "skipped";
+
+/** Why the library is calling your LLM. Lets a gateway route, cache and budget per task. */
+export type LlmPurpose = "summarize_agenda_item" | "extract_minutes" | "propose_blotter" | "propose_legistar_client";
+
+/** Passed as the third argument to your LLM callback. */
+export interface LlmCallInfo {
+  purpose: LlmPurpose;
+  /** Aborted when the call exceeds `llm.timeoutMs`. Pass it to your HTTP client or SDK so the request stops too. */
+  signal: AbortSignal;
+}
+
+/** What an LLM callback may return instead of a bare string, to report token usage. */
+export interface LlmReply {
+  text: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+}
+
+/**
+ * Your LLM. The document text arrives as `text` and is UNTRUSTED (a web page,
+ * a PDF): `systemPrompt` tells the model so. Returns the model's text, or
+ * `{ text, usage }`. Two-argument callbacks keep working.
+ */
+export type LlmCallback = (systemPrompt: string, text: string, info?: LlmCallInfo) => Promise<string | LlmReply>;
+
+/** Limits on the LLM callback. Every field is optional. */
+export interface LlmPolicy {
+  /** Most calls in one run (default 1000; `Infinity` for no limit). Past it, adapters use their non-LLM fallback and report `partial`. */
+  maxCalls?: number;
+  /** Per-call deadline in ms (default 60000). */
+  timeoutMs?: number;
+}
 
 /** What a run cost, counted whether or not anyone listens for events. */
 export interface RunStats {
@@ -329,6 +362,20 @@ export type CivicEventPayload =
     }
   | { type: "http.retry"; host: string; reason: string; waitMs: number; attempt: number }
   | {
+      type: "llm.call";
+      purpose: LlmPurpose;
+      ok: boolean;
+      durationMs: number;
+      /** Characters in the system prompt and document together. */
+      inputChars: number;
+      outputChars?: number;
+      /** Reported by the callback via `{ text, usage }`. */
+      inputTokens?: number;
+      outputTokens?: number;
+      /** Why it failed or was refused; any URL query string is stripped. Never the model's text. */
+      error?: string;
+    }
+  | {
       type: "sink.save";
       /** 1-based position of this `sink.save` call within the run's save. */
       batch: number;
@@ -379,7 +426,9 @@ export interface DiscoveryContext {
    * WEB-SEARCH-GROUNDED generation. An ungrounded model will hallucinate
    * candidates; verification rejects them, which is safe but yields nothing.
    */
-  generate: (systemPrompt: string, prompt: string) => Promise<string>;
+  generate: LlmCallback;
+  /** Deadline for `generate`; see LlmPolicy. */
+  llm?: LlmPolicy;
   /**
    * Optional yes/no verifier used as an EXTRA gate on candidates that already
    * passed the deterministic parsers (e.g. rows parsed from a table that turns

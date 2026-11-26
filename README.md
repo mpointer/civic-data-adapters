@@ -140,8 +140,10 @@ What it does not do: the URL in a source you configure by hand is trusted, and t
 Two adapters touch unstructured text. `legistar` can summarize agenda items, and `html_minutes` cannot work at all without a parser for free-form minutes. Both use one optional hook:
 
 ```ts
-ctx.summarize = (systemPrompt, text) => myLlm(systemPrompt, text); // returns Promise<string>
+ctx.summarize = (systemPrompt, text, info) => myLlm(systemPrompt, text, { signal: info?.signal }); // Promise<string>
 ```
+
+The callback gets a third argument, `info`: a `purpose` (`summarize_agenda_item` or `extract_minutes`; discovery's `generate` gets `propose_blotter` or `propose_legistar_client`) so a gateway can route, cache and budget per task, and an abort `signal` that fires at the deadline. It may return a plain string, or `{ text, usage: { inputTokens, outputTokens } }` to get token counts into the events. A two-argument callback keeps working.
 
 Without it, `legistar` falls back to title/action text and `html_minutes` skips with a warning. Bring any LLM. If you want governance around that spend (caps, usage ledger, failover), [llm-governance-gateway](https://github.com/mpointer/llm-governance-gateway)'s `runText` wires in directly, but nothing here requires it:
 
@@ -151,6 +153,18 @@ ctx.summarize = async (system, text) =>
 ```
 
 How `html_minutes` uses it: a document longer than one call (8,000 characters) is split into overlapping sections and `summarize` is called once per section, up to 3 at a time, so make the callback safe to run concurrently. Reading stops at 64,000 characters (60 PDF pages) and says so (`partial`). The model is not trusted: an extracted item whose title is not in the text it came from (at least 60% of its words) is dropped, and a vote count that is not in the text is removed from the item. That catches invented items and invented tallies; it cannot catch a paraphrase that changes the meaning, so treat the output as extracted, not verified. Up to 200 items are kept per document.
+
+What the library does around every call (`src/llm.ts`), because the text you pass in comes from public web pages and PDFs and is hostile until proven otherwise:
+
+- **The system prompts say the document is untrusted** and its instructions are not to be followed. That is a mitigation, not a guarantee; prompt injection is not solved. What the library relies on instead is what it does with the *output*.
+- **The reply is untrusted too.** Only text is accepted (anything else counts as a failed call). Control characters and invisible direction-override characters are stripped, so a page cannot make a stored summary read differently than it is. Summaries are capped at 1,500 characters, cut at a sentence end. Extracted minutes must be grounded in the source text (above).
+- **A deadline:** 60 s per call by default (`llm: { timeoutMs }`). A callback that never answers no longer hangs the run; the call fails, its `signal` aborts, and the adapter falls back to title text.
+- **A budget:** at most 1,000 calls per run by default (`llm: { maxCalls }`, `Infinity` to lift it). A huge agenda used to mean one paid call per item with no ceiling. Past the budget the remaining items use their title text and the run is `partial`.
+- **An event** per call, `llm.call`: purpose, ok, duration, input and output sizes, tokens if you reported them, and the error. Never the text. `stats.llmCalls` counts them.
+
+```ts
+const ctx = { sink, summarize, llm: { maxCalls: 300, timeoutMs: 30_000 } };
+```
 
 ## Discovery (v0.2)
 

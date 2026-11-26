@@ -40,7 +40,7 @@ describe("ingestHtmlMinutes", () => {
     const summarize = vi.fn(async () => "[]");
     const { ctx } = setup(summarize);
     await ingestHtmlMinutes(locality, source, meta, ctx);
-    expect(summarize).toHaveBeenCalledWith(expect.any(String), "Minutes Motion to approve budget passed.");
+    expect(summarize).toHaveBeenCalledWith(expect.any(String), "Minutes Motion to approve budget passed.", expect.objectContaining({ purpose: "extract_minutes" }));
   });
 
   it("ingests validated items, sanitizes dates, and drops malformed ones", async () => {
