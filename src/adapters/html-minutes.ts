@@ -16,6 +16,7 @@ import type {
 import { robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
 import { observed } from "../telemetry.js";
+import { saveRecords } from "../sink.js";
 import { createRun } from "../outcome.js";
 import { mapLimit } from "../concurrency.js";
 import { htmlToText } from "../html.js";
@@ -268,5 +269,5 @@ async function runHtmlMinutes(
     });
   }
 
-  return run.done(await ctx.sink.save(records), records.length);
+  return run.done(await saveRecords(ctx, run, records), records.length);
 }

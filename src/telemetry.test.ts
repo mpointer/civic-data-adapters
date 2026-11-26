@@ -79,7 +79,7 @@ describe("run events", () => {
     };
     const { ctx, events } = ctxWith(() => json([row(1)]), { sink });
     await expect(runAdapter(locality, source, socrataMeta, ctx)).rejects.toThrow("disk full");
-    expect(events.at(-1)).toMatchObject({ type: "run.error", message: "disk full" });
+    expect(events.at(-1)).toMatchObject({ type: "run.error", message: expect.stringContaining("disk full") });
     expect(events.some((e) => e.type === "run.end")).toBe(false);
   });
 });

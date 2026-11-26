@@ -16,6 +16,7 @@ import { robotsAllows } from "../internal.js";
 import { httpFetch } from "../http.js";
 import { contentKey } from "../dedupe.js";
 import { observed } from "../telemetry.js";
+import { saveRecords } from "../sink.js";
 import { createRun } from "../outcome.js";
 import { parseHtmlTables } from "../html.js";
 import { readText, MAX_HTML_BYTES } from "../body.js";
@@ -186,7 +187,7 @@ async function runHtmlBlotter(
     });
   }
 
-  const result = await ctx.sink.save(records);
+  const result = await saveRecords(ctx, run, records);
   await ctx.logger?.log(
     `[${locality.name}] blotter_html: +${result.inserted} records, ${result.skipped} skipped from ${url}`
   );

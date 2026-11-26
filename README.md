@@ -74,6 +74,24 @@ Every record carries a stable `dedupeKey` (provider plus the source's natural id
 
 Other things the context controls: `fetch` override (tests, proxies), `userAgent`, and robots.txt checking, which is on by default and fails open. If your codebase already has its own robots implementation, inject it with `robotsCheck: (url) => Promise<boolean>` and it runs instead of the bundled checker, so you don't pay for a second robots.txt fetch per request (`skipRobotsCheck: true` remains the blunt off switch). One testing note, learned from the first adopter's suite: the bundled checker uses `ctx.fetch`, so a test that stubs fetch and asserts call counts will see one extra call per adapter invocation unless it mocks a robots.txt response, sets `skipRobotsCheck`, or injects a `robotsCheck`. Dates pass through `sanitizeCivicDate`, which rejects unparseable values and anything more than a year in the future, because open-data date fields do contain typos and a bad future date can make a "recent activity" view permanently wrong. That one comes from production experience.
 
+### The sink contract
+
+`CivicRecordSink.save(records)` is the one method you implement. The library holds up its side, and you hold up yours:
+
+- **Idempotent on `dedupeKey`.** A record whose key is already stored must not throw and must not create a second row. Leave it (count it in `skipped`) or overwrite it (count it in `updated`). Re-running a source is routine, so repeats are the normal case.
+- **Return `{ inserted, skipped }`** as non-negative integers (plus `updated` if you upsert). Returning nothing is an error, and the run stops with a `CivicSinkError` that says so.
+- **What you receive.** At most `sinkBatchSize` records per call (default 500, max 5000), never an empty list. Every record has a non-empty `dedupeKey`, `title`, `provider`, `type`, `localityName` and `sourceId`; at most one record per `dedupeKey` per run; a real calendar `date` or `null`; an `http(s)` `url` or `null`. Records that cannot meet that are dropped before you see them (the run reports `partial` with the count), a `date` the parser could not read is cleared, and a `javascript:` or other non-http `url` is cleared, so it cannot reach a page as a link.
+- **Failure.** Throw. Earlier batches may already be stored; rerunning is safe because of the first rule. The error that reaches your caller is a `CivicSinkError` with `saved` (what was stored before the failure), `unsaved`, `batch`, `batches` and `cause`.
+
+Check your implementation in your own test suite, against your real database:
+
+```ts
+import { checkSinkContract } from "civic-data-adapters";
+
+const { ok, failures } = await checkSinkContract(mySink, { cleanup: (keys) => db.deleteWhereKeyIn(keys) });
+// failures[] names each way the sink broke the contract. Test rows have keys starting "civic-sink-check:".
+```
+
 ### Retries and rate limits
 
 Every outbound request goes through one layer (`src/http.ts`). A 429, 502, 503 or 504, a network error or a timeout is retried up to 3 times with exponential backoff and jitter (500 ms, 1 s, 2 s, capped at 30 s), and `Retry-After` is honored. A `Retry-After` longer than 30 s is not slept through: the run fails fast with the HTTP status. A 429 also holds back every other request to that host until the wait is over, so Legistar's parallel workers back off together instead of each hammering a host that said slow down. Only GET and HEAD are repeated, plus the two read-only POST searches (USASpending, CrimeWatch). Tune or switch it off per run:
