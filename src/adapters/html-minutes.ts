@@ -13,7 +13,8 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxUserAgent, robotsAllows, safeFetch } from "../internal.js";
+import { robotsAllows } from "../internal.js";
+import { httpFetch } from "../http.js";
 import { createRun } from "../outcome.js";
 import { mapLimit } from "../concurrency.js";
 import { htmlToText } from "../html.js";
@@ -80,10 +81,7 @@ type Fetched =
 async function fetchText(url: string, ctx: AdapterContext): Promise<Fetched> {
   if (!(await robotsAllows(url, ctx))) return { kind: "skipped" };
   try {
-    const res = await safeFetch(ctx, url, {
-      headers: { "User-Agent": ctxUserAgent(ctx) },
-      signal: AbortSignal.timeout(30_000),
-    });
+    const res = await httpFetch(ctx, url);
     if (!res.ok) return { kind: "error", reason: `HTTP ${res.status}` };
     const ct = res.headers.get("content-type") ?? "";
     const isPdf = ct.includes("pdf") || url.toLowerCase().endsWith(".pdf");

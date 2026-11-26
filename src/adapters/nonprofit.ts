@@ -15,7 +15,8 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent, robotsAllows } from "../internal.js";
+import { robotsAllows } from "../internal.js";
+import { httpFetch } from "../http.js";
 import { createRun } from "../outcome.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 import { parsePropublicaPage, type PropublicaPage } from "../responses.js";
@@ -105,7 +106,6 @@ export async function ingestNonprofitExplorer(
 
   const cityName = (locality.city ?? locality.name.split(",")[0] ?? locality.name).trim();
   const stateAbbr = locality.state.toUpperCase();
-  const fetchImpl = ctxFetch(ctx);
 
   let page = 0;
   let totalPages = 1;
@@ -133,10 +133,12 @@ export async function ingestNonprofitExplorer(
 
     let data: PropublicaPage | null;
     try {
-      const res = await fetchImpl(`${BASE_URL}?${params}`, {
-        headers: { "User-Agent": ctxUserAgent(ctx), Accept: "application/json" },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
+      const res = await httpFetch(
+        ctx,
+        `${BASE_URL}?${params}`,
+        { headers: { Accept: "application/json" } },
+        { timeoutMs: FETCH_TIMEOUT_MS }
+      );
       if (!res.ok) {
         await run.problem(`HTTP ${res.status} on page ${page}`);
         break;

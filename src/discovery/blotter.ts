@@ -9,7 +9,8 @@
 // blotter adapter needs per-city column config (both auto-detect columns), so
 // a candidate URL only needs its actual format confirmed.
 import type { Locality, DiscoveryContext, DiscoveredSource } from "../types.js";
-import { assertPublicHttpUrl, ctxUserAgent, robotsAllows, safeFetch } from "../internal.js";
+import { assertPublicHttpUrl, robotsAllows } from "../internal.js";
+import { httpFetch } from "../http.js";
 import { parseBlotterHtml } from "../adapters/blotter-html.js";
 import { extractIncidents } from "../adapters/blotter-pdf.js";
 import { isCrimewatchUrl, fetchCrimewatchIncidents } from "../adapters/blotter-crimewatch.js";
@@ -72,12 +73,8 @@ async function looksLikeBlotter(
 async function tryHtml(url: string, ctx: DiscoveryContext): Promise<CheckResult> {
   if (!(await robotsAllows(url, ctx))) return NONE;
   try {
-    const res = await safeFetch(
-      ctx,
-      url,
-      { headers: { "User-Agent": ctxUserAgent(ctx) }, signal: AbortSignal.timeout(10_000) },
-      { guardInitial: true }
-    );
+    // Probing a guess: a dead candidate should fail fast, not be retried.
+    const res = await httpFetch(ctx, url, {}, { timeoutMs: 10_000, guardInitial: true, retries: 0 });
     if (!res.ok) return NONE;
     const rows = parseBlotterHtml(await readText(res, MAX_HTML_BYTES));
     const sample = rows
@@ -94,12 +91,7 @@ async function tryHtml(url: string, ctx: DiscoveryContext): Promise<CheckResult>
 async function tryPdf(url: string, ctx: DiscoveryContext): Promise<CheckResult> {
   if (!(await robotsAllows(url, ctx))) return NONE;
   try {
-    const res = await safeFetch(
-      ctx,
-      url,
-      { headers: { "User-Agent": ctxUserAgent(ctx) }, signal: AbortSignal.timeout(15_000) },
-      { guardInitial: true }
-    );
+    const res = await httpFetch(ctx, url, {}, { timeoutMs: 15_000, guardInitial: true, retries: 0 });
     if (!res.ok) return NONE;
     const parsed = await parsePdf(await readBytes(res, MAX_PDF_BYTES), { maxPages: 20 });
     const incidents = extractIncidents(parsed.text);

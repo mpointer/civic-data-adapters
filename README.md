@@ -74,6 +74,16 @@ Every record carries a stable `dedupeKey` (provider plus the source's natural id
 
 Other things the context controls: `fetch` override (tests, proxies), `userAgent`, and robots.txt checking, which is on by default and fails open. If your codebase already has its own robots implementation, inject it with `robotsCheck: (url) => Promise<boolean>` and it runs instead of the bundled checker, so you don't pay for a second robots.txt fetch per request (`skipRobotsCheck: true` remains the blunt off switch). One testing note, learned from the first adopter's suite: the bundled checker uses `ctx.fetch`, so a test that stubs fetch and asserts call counts will see one extra call per adapter invocation unless it mocks a robots.txt response, sets `skipRobotsCheck`, or injects a `robotsCheck`. Dates pass through `sanitizeCivicDate`, which rejects unparseable values and anything more than a year in the future, because open-data date fields do contain typos and a bad future date can make a "recent activity" view permanently wrong. That one comes from production experience.
 
+### Retries and rate limits
+
+Every outbound request goes through one layer (`src/http.ts`). A 429, 502, 503 or 504, a network error or a timeout is retried up to 3 times with exponential backoff and jitter (500 ms, 1 s, 2 s, capped at 30 s), and `Retry-After` is honored. A `Retry-After` longer than 30 s is not slept through: the run fails fast with the HTTP status. A 429 also holds back every other request to that host until the wait is over, so Legistar's parallel workers back off together instead of each hammering a host that said slow down. Only GET and HEAD are repeated, plus the two read-only POST searches (USASpending, CrimeWatch). Tune or switch it off per run:
+
+```ts
+const ctx = { sink, http: { retries: 5, baseDelayMs: 1000, maxDelayMs: 60_000 } }; // or { retries: 0 }
+```
+
+Discovery probes do not retry, so a dead candidate URL fails at once. Retrying covers the request and its headers, not a connection that drops while the body is being read. Do not lower `maxDelayMs` below what a host's `Retry-After` normally is, or you will give up on hosts that are only briefly rate-limiting you.
+
 ### What the network layer does and does not guard
 
 Page, PDF and Socrata fetches follow redirects themselves, one hop at a time, at most 5. Every hop must be http(s), not `localhost`/`.internal`/`.local`, not a private, loopback or link-local address (including cloud metadata at `169.254.169.254`), must not resolve to one, and must be allowed by robots.txt. A redirect that fails any of that fails the run. URLs that discovery gets from your LLM are vetted the same way before the first request. Response bodies are capped (5 MiB HTML, 25 MiB JSON and PDF).

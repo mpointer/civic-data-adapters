@@ -12,7 +12,8 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxUserAgent, robotsAllows, FETCH_TIMEOUT_MS, safeFetch } from "../internal.js";
+import { robotsAllows } from "../internal.js";
+import { httpFetch } from "../http.js";
 import { contentKey } from "../dedupe.js";
 import { createRun } from "../outcome.js";
 import { parseHtmlTables } from "../html.js";
@@ -113,10 +114,7 @@ export async function ingestHtmlBlotter(
 
   let html: string;
   try {
-    const res = await safeFetch(ctx, url, {
-      headers: { "User-Agent": ctxUserAgent(ctx) },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
+    const res = await httpFetch(ctx, url);
     if (!res.ok) return run.fail(`HTTP ${res.status} from ${url}`);
     html = await readText(res, MAX_HTML_BYTES);
   } catch (err) {

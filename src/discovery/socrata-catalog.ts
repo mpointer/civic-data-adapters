@@ -15,7 +15,7 @@ import type {
   DiscoveryContext,
   DiscoveredSource,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent, FETCH_TIMEOUT_MS } from "../internal.js";
+import { httpFetch } from "../http.js";
 import { localityCityName } from "./candidates.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 
@@ -223,10 +223,7 @@ export async function searchSocrataCatalog(
 
     let page: CatalogResponse;
     try {
-      const res = await ctxFetch(ctx)(`${CATALOG_URL}?${params}`, {
-        headers: { "User-Agent": ctxUserAgent(ctx), Accept: "application/json" },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
+      const res = await httpFetch(ctx, `${CATALOG_URL}?${params}`, { headers: { Accept: "application/json" } });
       if (!res.ok) {
         await ctx.logger?.log(
           `[${locality.name}] socrata catalog: HTTP ${res.status} from catalog API for ${domain}`,

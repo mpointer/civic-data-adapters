@@ -20,8 +20,11 @@ import type {
   AdapterContext,
   AdapterResult,
   CivicRecord,
+  CivicLogger,
+  HttpPolicy,
 } from "../types.js";
-import { ctxFetch, ctxUserAgent, robotsAllows, safeFetch } from "../internal.js";
+import { robotsAllows } from "../internal.js";
+import { httpFetch } from "../http.js";
 import { createRun } from "../outcome.js";
 import { readText, readJson, MAX_HTML_BYTES, MAX_JSON_BYTES } from "../body.js";
 
@@ -113,14 +116,14 @@ export interface CrimewatchFetchOptions {
   fetch?: typeof fetch;
   userAgent?: string;
   skipRobotsCheck?: boolean;
+  robotsCheck?: (url: string) => Promise<boolean>;
+  http?: HttpPolicy;
+  logger?: CivicLogger;
 }
 
 async function getToken(apiBase: string, opts: CrimewatchFetchOptions): Promise<string | null> {
   try {
-    const res = await ctxFetch(opts)(`${apiBase}services/session/token`, {
-      headers: { "User-Agent": ctxUserAgent(opts) },
-      signal: AbortSignal.timeout(10000),
-    });
+    const res = await httpFetch(opts, `${apiBase}services/session/token`, {}, { timeoutMs: 10_000 });
     if (!res.ok) return null;
     return (await readText(res, 4096)).trim();
   } catch {
@@ -186,14 +189,14 @@ async function fetchFeedPage(
   opts: CrimewatchFetchOptions
 ): Promise<FeedResponse | null> {
   try {
-    const res = await ctxFetch(opts)(
+    const res = await httpFetch(
+      opts,
       `${settings.apiBase}api/cw_web/feed?api-key=${encodeURIComponent(settings.apiKey)}`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-CSRF-Token": token,
-          "User-Agent": ctxUserAgent(opts),
         },
         body: JSON.stringify({
           gid: settings.gid,
@@ -204,8 +207,8 @@ async function fetchFeedPage(
           sticky: 1,
           cache: 1,
         }),
-        signal: AbortSignal.timeout(15000),
-      }
+      },
+      { timeoutMs: 15_000, idempotent: true } // a read-only feed query, safe to repeat
     );
     if (!res.ok) return null;
     const body = (await readJson(res, MAX_JSON_BYTES)) as FeedResponse | null;
@@ -252,10 +255,7 @@ async function fetchCrimewatch(
 
   let html: string;
   try {
-    const res = await safeFetch(options, url, {
-      headers: { "User-Agent": ctxUserAgent(options) },
-      signal: AbortSignal.timeout(10000),
-    });
+    const res = await httpFetch(options, url, {}, { timeoutMs: 10_000 });
     if (!res.ok) return stop(`HTTP ${res.status} from ${url}`);
     html = await readText(res, MAX_HTML_BYTES);
   } catch (err) {

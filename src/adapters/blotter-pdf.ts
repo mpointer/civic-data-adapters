@@ -16,7 +16,8 @@ import type {
   AdapterResult,
   CivicRecord,
 } from "../types.js";
-import { ctxUserAgent, robotsAllows, FETCH_TIMEOUT_MS, safeFetch } from "../internal.js";
+import { robotsAllows } from "../internal.js";
+import { httpFetch } from "../http.js";
 import { createRun } from "../outcome.js";
 import { parsePdf } from "../pdf.js";
 import { readBytes, MAX_PDF_BYTES } from "../body.js";
@@ -133,10 +134,7 @@ export async function ingestPdfBlotter(
 
   let pdfText: string;
   try {
-    const res = await safeFetch(ctx, url, {
-      headers: { "User-Agent": ctxUserAgent(ctx) },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
+    const res = await httpFetch(ctx, url);
     if (!res.ok) return run.fail(`HTTP ${res.status} from ${url}`);
     const parsed = await parsePdf(await readBytes(res, MAX_PDF_BYTES), { maxPages: MAX_PAGES });
     pdfText = parsed.text;

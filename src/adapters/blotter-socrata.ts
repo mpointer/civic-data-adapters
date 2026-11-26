@@ -17,7 +17,7 @@ import type {
   CivicRecord,
   CivicRecordType,
 } from "../types.js";
-import { ctxUserAgent, FETCH_TIMEOUT_MS, safeFetch } from "../internal.js";
+import { httpFetch } from "../http.js";
 import { createRun } from "../outcome.js";
 import { readJson, MAX_JSON_BYTES } from "../body.js";
 import { sanitizeCivicDate } from "../dates.js";
@@ -91,9 +91,8 @@ export async function ingestSocrataRecords(
 
     let rows: SocrataRow[];
     try {
-      const res = await safeFetch(ctx, `${endpoint}?${params}`, {
-        headers: { "User-Agent": ctxUserAgent(ctx), Accept: "application/json" },
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      const res = await httpFetch(ctx, `${endpoint}?${params}`, {
+        headers: { Accept: "application/json" },
       });
       if (!res.ok) {
         await run.problem(`HTTP ${res.status} from ${endpoint}${pages > 1 ? ` (page ${pages})` : ""}`);
